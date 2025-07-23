@@ -154,9 +154,9 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
                     </div>
 
                     {/* Grid Layout for Other Sections */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 auto-rows-fr">
                       {/* Meeting Context Card */}
-                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                         <h4 className="font-medium text-black mb-4">Meeting Context</h4>
                         
                         {/* Sentiment */}
@@ -169,7 +169,7 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
 
                         {/* Participants */}
                         {report.score.participants && report.score.participants.length > 0 && (
-                          <div className="flex-1">
+                          <div>
                             <h5 className="font-medium text-black mb-2">Participants</h5>
                             <div className="flex flex-wrap gap-2">
                               {report.score.participants.map((participant, idx) => (
@@ -184,9 +184,9 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
 
                       {/* Key Insights Card */}
                       {report.score.insights && report.score.insights.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                           <h4 className="font-medium text-black mb-4">Key Insights</h4>
-                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                          <ul className="space-y-3">
                             {report.score.insights.map((insight, idx) => (
                               <li key={idx} className="flex items-start gap-3">
                                 <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -198,18 +198,16 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
                       )}
 
                       {/* Meeting Summary Card */}
-                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                         <h4 className="font-medium text-black mb-4">Meeting Summary</h4>
-                        <div className="flex-1 overflow-y-auto">
-                          <p className="text-gray-700 leading-relaxed">{report.score.summary}</p>
-                        </div>
+                        <p className="text-gray-700 leading-relaxed">{report.score.summary}</p>
                       </div>
 
                       {/* Action Items Card */}
                       {report.score.action_items && report.score.action_items.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                           <h4 className="font-medium text-black mb-4">Action Items</h4>
-                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                          <ul className="space-y-3">
                             {report.score.action_items.map((item, idx) => (
                               <li key={idx} className="flex items-start gap-3">
                                 <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
@@ -222,9 +220,9 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
 
                       {/* Key Topics Card */}
                       {report.score.key_topics && report.score.key_topics.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                           <h4 className="font-medium text-black mb-4">Key Topics</h4>
-                          <div className="flex flex-wrap gap-2 flex-1 items-start">
+                          <div className="flex flex-wrap gap-2">
                             {report.score.key_topics.map((topic, idx) => (
                               <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">
                                 {topic}
@@ -236,9 +234,9 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
 
                       {/* Recommendations Card */}
                       {report.score.recommendations && report.score.recommendations.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                           <h4 className="font-medium text-black mb-4">Recommendations</h4>
-                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                          <ul className="space-y-3">
                             {report.score.recommendations.map((recommendation, idx) => (
                               <li key={idx} className="flex items-start gap-3">
                                 <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
