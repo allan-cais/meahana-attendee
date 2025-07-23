@@ -35,11 +35,16 @@ export interface TranscriptData {
 }
 
 export interface ReportScore {
-  summary: string;
-  key_points: string[];
-  action_items: string[];
+  overall_score: number;
   sentiment: string;
+  key_topics: string[];
+  action_items: string[];
+  participants: string[];
   engagement_score: number;
+  meeting_effectiveness: number;
+  summary: string;
+  insights: string[];
+  recommendations: string[];
 }
 
 export interface Report {

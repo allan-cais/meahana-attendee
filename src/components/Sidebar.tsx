@@ -69,8 +69,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={onNewBot}
-          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 mb-6"
+          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 mb-6 cursor-pointer"
         >
           <Bot className="w-4 h-4" />
           New Bot

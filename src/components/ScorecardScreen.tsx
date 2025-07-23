@@ -37,7 +37,7 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="w-full max-w-7xl mx-auto">
       <div className="bg-white rounded-lg p-8 shadow-lg border border-gray-200">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -105,68 +105,150 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
             {reportData.reports && reportData.reports.length > 0 && (
               <div className="space-y-6">
                 {reportData.reports.map((report, index) => (
-                  <div key={report.id} className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                    <div className="flex items-center justify-between mb-4">
+                  <div key={report.id} className="space-y-6">
+                    {/* Report Header */}
+                    <div className="flex items-center justify-between">
                       <h3 className="text-lg font-semibold text-black">Report #{index + 1}</h3>
                       <span className="text-sm text-gray-500">
                         {new Date(report.created_at).toLocaleString()}
                       </span>
                     </div>
 
-                    {/* Engagement Score */}
-                    <div className="mb-6">
-                      <div className="flex items-center gap-2 mb-2">
-                        <TrendingUp className="w-5 h-5 text-primary-600" />
-                        <h4 className="font-medium text-black">Engagement Score</h4>
-                      </div>
-                      <div className={`text-3xl font-bold ${getEngagementColor(report.score.engagement_score)}`}>
-                        {report.score.engagement_score}/10
+                    {/* Scores Card - Full Width */}
+                    <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                      <h4 className="font-medium text-black mb-4">Meeting Metrics</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Overall Score */}
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <TrendingUp className="w-5 h-5 text-primary-600" />
+                            <h5 className="font-medium text-black">Overall Score</h5>
+                          </div>
+                          <div className={`text-4xl font-bold ${getEngagementColor(report.score.overall_score * 10)}`}>
+                            {(report.score.overall_score * 100).toFixed(0)}%
+                          </div>
+                        </div>
+
+                        {/* Engagement Score */}
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <TrendingUp className="w-5 h-5 text-primary-600" />
+                            <h5 className="font-medium text-black">Engagement</h5>
+                          </div>
+                          <div className={`text-4xl font-bold ${getEngagementColor(report.score.engagement_score * 10)}`}>
+                            {(report.score.engagement_score * 100).toFixed(0)}%
+                          </div>
+                        </div>
+
+                        {/* Meeting Effectiveness */}
+                        <div className="text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <TrendingUp className="w-5 h-5 text-primary-600" />
+                            <h5 className="font-medium text-black">Effectiveness</h5>
+                          </div>
+                          <div className={`text-4xl font-bold ${getEngagementColor(report.score.meeting_effectiveness * 10)}`}>
+                            {(report.score.meeting_effectiveness * 100).toFixed(0)}%
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Sentiment */}
-                    <div className="mb-6">
-                      <h4 className="font-medium text-black mb-2">Sentiment</h4>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getSentimentColor(report.score.sentiment)}`}>
-                        {report.score.sentiment}
-                      </span>
-                    </div>
+                    {/* Grid Layout for Other Sections */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Meeting Context Card */}
+                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <h4 className="font-medium text-black mb-4">Meeting Context</h4>
+                        
+                        {/* Sentiment */}
+                        <div className="mb-4">
+                          <h5 className="font-medium text-black mb-2">Sentiment</h5>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getSentimentColor(report.score.sentiment)}`}>
+                            {report.score.sentiment}
+                          </span>
+                        </div>
 
-                    {/* Summary */}
-                    <div className="mb-6">
-                      <h4 className="font-medium text-black mb-2">Summary</h4>
-                      <p className="text-gray-700 leading-relaxed">{report.score.summary}</p>
-                    </div>
-
-                    {/* Key Points */}
-                    {report.score.key_points && report.score.key_points.length > 0 && (
-                      <div className="mb-6">
-                        <h4 className="font-medium text-black mb-2">Key Points</h4>
-                        <ul className="space-y-2">
-                          {report.score.key_points.map((point, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                              <span className="text-gray-700">{point}</span>
-                            </li>
-                          ))}
-                        </ul>
+                        {/* Participants */}
+                        {report.score.participants && report.score.participants.length > 0 && (
+                          <div className="flex-1">
+                            <h5 className="font-medium text-black mb-2">Participants</h5>
+                            <div className="flex flex-wrap gap-2">
+                              {report.score.participants.map((participant, idx) => (
+                                <span key={idx} className="px-3 py-1 bg-primary-100 text-primary-800 rounded-full text-sm">
+                                  {participant}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
 
-                    {/* Action Items */}
-                    {report.score.action_items && report.score.action_items.length > 0 && (
-                      <div>
-                        <h4 className="font-medium text-black mb-2">Action Items</h4>
-                        <ul className="space-y-2">
-                          {report.score.action_items.map((item, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <AlertCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                              <span className="text-gray-700">{item}</span>
-                            </li>
-                          ))}
-                        </ul>
+                      {/* Key Insights Card */}
+                      {report.score.insights && report.score.insights.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                          <h4 className="font-medium text-black mb-4">Key Insights</h4>
+                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                            {report.score.insights.map((insight, idx) => (
+                              <li key={idx} className="flex items-start gap-3">
+                                <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                                <span className="text-gray-700">{insight}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Meeting Summary Card */}
+                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                        <h4 className="font-medium text-black mb-4">Meeting Summary</h4>
+                        <div className="flex-1 overflow-y-auto">
+                          <p className="text-gray-700 leading-relaxed">{report.score.summary}</p>
+                        </div>
                       </div>
-                    )}
+
+                      {/* Action Items Card */}
+                      {report.score.action_items && report.score.action_items.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                          <h4 className="font-medium text-black mb-4">Action Items</h4>
+                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                            {report.score.action_items.map((item, idx) => (
+                              <li key={idx} className="flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                                <span className="text-gray-700">{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Key Topics Card */}
+                      {report.score.key_topics && report.score.key_topics.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                          <h4 className="font-medium text-black mb-4">Key Topics</h4>
+                          <div className="flex flex-wrap gap-2 flex-1 items-start">
+                            {report.score.key_topics.map((topic, idx) => (
+                              <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">
+                                {topic}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Recommendations Card */}
+                      {report.score.recommendations && report.score.recommendations.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200 h-64 flex flex-col">
+                          <h4 className="font-medium text-black mb-4">Recommendations</h4>
+                          <ul className="space-y-3 flex-1 overflow-y-auto">
+                            {report.score.recommendations.map((recommendation, idx) => (
+                              <li key={idx} className="flex items-start gap-3">
+                                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+                                <span className="text-gray-700">{recommendation}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

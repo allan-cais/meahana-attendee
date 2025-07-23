@@ -9,6 +9,7 @@ import apiService from './services/api';
 const App: React.FC = () => {
   const [bots, setBots] = useState<MeetingBot[]>([]);
   const [selectedBotId, setSelectedBotId] = useState<number | null>(null);
+  const [isCreatingNewBot, setIsCreatingNewBot] = useState(false);
   const [config, setConfig] = useState<MeetingConfig>({
     meeting_url: '',
     bot_name: '',
@@ -24,6 +25,7 @@ const App: React.FC = () => {
   // Create new bot
   const handleNewBot = () => {
     setSelectedBotId(null);
+    setIsCreatingNewBot(true);
     setConfig({ meeting_url: '', bot_name: '', join_at: undefined });
     setReportData(null);
     setError(null);
@@ -52,13 +54,20 @@ const App: React.FC = () => {
       
       setBots(prev => [...prev, newBot]);
       setSelectedBotId(result.id);
+      setIsCreatingNewBot(false);
       
+      // If bot is completed, fetch report data immediately
+      if (result.status === 'completed') {
+        console.log('Bot is completed, fetching report data...');
+        fetchReportData();
+      }
       // Start polling for status updates if bot is pending
-      if (result.status === 'pending') {
+      else if (result.status === 'pending') {
         startStatusPolling(result.id);
       }
       
     } catch (err) {
+      console.log('Error in handleConfigSubmit:', err);
       setError(err instanceof Error ? err.message : 'Bot creation failed');
     } finally {
       setLoading(false);
@@ -122,6 +131,7 @@ const App: React.FC = () => {
   // Handle bot selection
   const handleBotSelect = (botId: number) => {
     setSelectedBotId(botId);
+    setIsCreatingNewBot(false);
     const bot = bots.find(b => b.id === botId);
     if (bot) {
       // Set config from bot metadata
@@ -182,7 +192,15 @@ const App: React.FC = () => {
 
           {/* Content Area */}
           <main className="flex-1 p-6 overflow-y-auto">
-            {!selectedBotId ? (
+            {isCreatingNewBot ? (
+              <ConfigScreen
+                config={config}
+                setConfig={setConfig}
+                onSubmit={handleConfigSubmit}
+                loading={loading}
+                error={error}
+              />
+            ) : !selectedBotId ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <Bot className="w-16 h-16 text-gray-400 mx-auto mb-4" />

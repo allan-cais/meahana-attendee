@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings, Send, RefreshCw } from 'lucide-react';
 import { MeetingConfig } from '../types';
+import DateTimePicker from './DateTimePicker';
 
 interface ConfigScreenProps {
   config: MeetingConfig;
@@ -60,12 +61,10 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({
             <label htmlFor="join_at" className="block text-sm font-medium text-gray-700 mb-2">
               Join At (Optional)
             </label>
-            <input
-              type="datetime-local"
-              id="join_at"
+            <DateTimePicker
               value={config.join_at || ''}
-              onChange={(e) => setConfig({ ...config, join_at: e.target.value || undefined })}
-              className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-black placeholder-gray-500 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none transition-colors"
+              onChange={(value) => setConfig({ ...config, join_at: value || undefined })}
+              placeholder="Select when the bot should join the meeting"
             />
             <p className="text-sm text-gray-500 mt-1">
               Leave empty to join immediately when created
