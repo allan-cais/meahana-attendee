@@ -6,7 +6,7 @@ import {
   ReportData 
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://js-cais-dev-97449-u35829.vm.elestio.app';
 
 class ApiService {
   private async makeRequest<T>(
@@ -43,22 +43,12 @@ class ApiService {
   async createBot(request: CreateBotRequest): Promise<CreateBotResponse> {
     console.log('Creating bot with request:', request);
     
-    // Try to make the API call
-    try {
-      const result = await this.makeRequest<CreateBotResponse>('/api/v1/bots/', {
-        method: 'POST',
-        body: JSON.stringify(request),
-      });
-      console.log('API call successful:', result);
-      return result;
-    } catch (error) {
-      // Return mock data if API is not available
-      console.log('API not available, returning mock bot creation response');
-      console.log('Error details:', error);
-      const mockResponse = this.getMockBotCreationResponse(request);
-      console.log('Mock response:', mockResponse);
-      return mockResponse;
-    }
+    const result = await this.makeRequest<CreateBotResponse>('/api/v1/bots/', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    console.log('API call successful:', result);
+    return result;
   }
 
   // Get meeting transcripts
@@ -70,18 +60,9 @@ class ApiService {
   async getReport(meetingId: number): Promise<ReportData> {
     console.log('Fetching report for meeting ID:', meetingId);
     
-    try {
-      const result = await this.makeRequest<ReportData>(`/meeting/${meetingId}/report`);
-      console.log('Report API call successful:', result);
-      return result;
-    } catch (error) {
-      // Return mock data if API is not available
-      console.log('API not available, returning mock data');
-      console.log('Report fetch error details:', error);
-      const mockData = this.getMockReportData(meetingId);
-      console.log('Mock report data:', mockData);
-      return mockData;
-    }
+    const result = await this.makeRequest<ReportData>(`/meeting/${meetingId}/report`);
+    console.log('Report API call successful:', result);
+    return result;
   }
 
   // Poll for report with exponential backoff
@@ -124,50 +105,6 @@ class ApiService {
     // Note: This endpoint is not in the API docs, so we'll return empty array
     // You may need to implement this on your backend or store bots locally
     return [];
-  }
-
-  // Mock report data for development
-  private getMockReportData(meetingId: number): ReportData {
-    return {
-      meeting_id: meetingId,
-      status: 'completed',
-      reports: [
-        {
-          id: 1,
-          score: {
-            overall_score: 0.7,
-            sentiment: "neutral",
-            key_topics: ["MCP server build", "AI integration", "Third party APIs", "Clock backend", "Symptom Server", "System architecture diagram"],
-            action_items: ["Focus on log for MCP server", "Authenticate user", "Request chat sending to external API", "Interact clock backend with third party APIs", "Build Symptom Server", "Review system architecture diagram"],
-            participants: ["Awais Anwaar", "Arjun"],
-            engagement_score: 0.9,
-            meeting_effectiveness: 0.6,
-            summary: "Awais Anwaar discussed the current progress on various aspects of the project, including the MCP server, AI integration, and third-party APIs. He also mentioned the need to focus on the clock backend and the creation of a Symptom Server. A new system architecture diagram was created and sent for review.",
-            insights: ["The project is in progress and expected to cover all aspects in the next three to four days", "There is a need to focus on multiple aspects of the project, particularly the clock backend", "A new system architecture diagram has been created and sent for review"],
-            recommendations: ["Increase focus on the clock backend and Symptom Server", "Ensure timely review of the new system architecture diagram", "Maintain progress pace to cover all aspects in the stated timeline"]
-          },
-          created_at: new Date().toISOString()
-        }
-      ],
-      message: null
-    };
-  }
-
-  // Mock bot creation response for development
-  private getMockBotCreationResponse(request: CreateBotRequest): CreateBotResponse {
-    const botId = Math.floor(Math.random() * 10000);
-    return {
-      id: botId,
-      meeting_url: request.meeting_url,
-      bot_id: `bot_${botId}`,
-      status: 'completed', // Changed from 'pending' to 'completed' for immediate mock data
-      meeting_metadata: {
-        bot_name: request.bot_name,
-        join_at: request.join_at
-      },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
   }
 }
 
