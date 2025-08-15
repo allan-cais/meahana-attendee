@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # Database
+  db:
+    image: postgres:15
+    container_name: meeting-bot-db
+    environment:
+      POSTGRES_DB: meeting_bot_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - meeting-bot-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: meeting-bot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - meeting-bot-network
+
+  # Backend API
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: meeting-bot-backend
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/meeting_bot_db
+      - REDIS_URL=redis://redis:6379/0
+      - ATTENDEE_API_KEY=${ATTENDEE_API_KEY}
+      - ATTENDEE_API_BASE_URL=${ATTENDEE_API_BASE_URL:-https://app.attendee.dev}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - DEBUG=${DEBUG:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL}
+      - PRODUCTION_BASE_URL=${PRODUCTION_BASE_URL}
+      - NGROK_AUTH_TOKEN=${NGROK_AUTH_TOKEN}
+      - AUTO_START_NGROK=${AUTO_START_NGROK:-true}
+      - NGROK_SUBDOMAIN=${NGROK_SUBDOMAIN}
+      - NGROK_PORT=${NGROK_PORT:-8000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for database to be ready...' &&
+        sleep 10 &&
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    networks:
+      - meeting-bot-network
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: meeting-bot-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./package.json:/app/package.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tailwind.config.js:/app/tailwind.config.js
+      - ./postcss.config.js:/app/postcss.config.js
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - meeting-bot-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  meeting-bot-network:
+    driver: bridge

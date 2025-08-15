@@ -35,9 +35,16 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({
               type="url"
               id="meeting_url"
               value={config.meeting_url}
-              onChange={(e) => setConfig({ ...config, meeting_url: e.target.value })}
+              onChange={(e) => {
+                let url = e.target.value;
+                // Auto-add https:// prefix for Google Meet URLs if missing
+                if (url && url.includes('meet.google.com') && !url.startsWith('http')) {
+                  url = `https://${url}`;
+                }
+                setConfig({ ...config, meeting_url: url });
+              }}
               className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-black placeholder-gray-500 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none transition-colors"
-              placeholder="https://meet.google.com/abc-def-ghi"
+              placeholder="meet.google.com/abc-def-ghi or https://meet.google.com/abc-def-ghi"
               required
             />
           </div>

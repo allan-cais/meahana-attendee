@@ -15,10 +15,14 @@ import {
 } from '../types';
 
 // Clean the API base URL to remove any trailing slashes
-const API_BASE_URL = (process.env.REACT_APP_API_URL || 'https://js-cais-dev-97449-u35829.vm.elestio.app').replace(/\/$/, '');
+const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 // Log API configuration for debugging
-console.log('API Service initialized with base URL:', API_BASE_URL);
+console.log('=== API Configuration Debug ===');
+console.log('Environment REACT_APP_API_URL:', process.env.REACT_APP_API_URL);
+console.log('API_BASE_URL configured as:', API_BASE_URL);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('================================');
 
 // Utility function to properly construct URLs
 function constructUrl(baseUrl: string, endpoint: string): string {
@@ -154,9 +158,52 @@ class ApiService {
 
   // Get all bots (this would need to be implemented on the backend)
   async getBots(): Promise<MeetingBot[]> {
-    // Note: This endpoint is not in the API docs, so we'll return empty array
-    // You may need to implement this on your backend or store bots locally
-    return [];
+    try {
+      const result = await this.makeRequest<MeetingBot[]>('/api/v1/bots/');
+      console.log('Retrieved bots from API:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to get bots:', error);
+      return [];
+    }
+  }
+
+  // Get a specific bot by ID
+  async getBot(botId: number): Promise<MeetingBot> {
+    try {
+      const result = await this.makeRequest<MeetingBot>(`/api/v1/bots/${botId}`);
+      console.log(`Retrieved bot ${botId} from API:`, result);
+      return result;
+    } catch (error) {
+      console.error(`Failed to get bot ${botId}:`, error);
+      throw error;
+    }
+  }
+
+  // Manually trigger analysis for a meeting
+  async triggerAnalysis(meetingId: number): Promise<{message: string}> {
+    try {
+      const result = await this.makeRequest<{message: string}>(`/meeting/${meetingId}/trigger-analysis`, {
+        method: 'POST',
+      });
+      console.log(`Analysis triggered for meeting ${meetingId}:`, result);
+      return result;
+    } catch (error) {
+      console.error(`Failed to trigger analysis for meeting ${meetingId}:`, error);
+      throw error;
+    }
+  }
+
+  // Get webhook debug information
+  async getWebhookDebugInfo(): Promise<any> {
+    try {
+      const result = await this.makeRequest<any>('/webhook/debug');
+      console.log('Webhook debug info:', result);
+      return result;
+    } catch (error) {
+      console.error('Failed to get webhook debug info:', error);
+      throw error;
+    }
   }
 }
 

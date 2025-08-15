@@ -1,146 +1,225 @@
 # Meeting Bot Dashboard
 
-A clean, modern React application for configuring and monitoring meeting bots with a beautiful white/black/blue UI theme.
+A full-stack application for managing meeting bots with real-time transcription and AI-powered reporting.
 
-## Features
+## 🏗️ Architecture
 
-- **Clean UI Design**: White background with black text and blue accents
-- **Meeting Bot Management**: Create and manage multiple meeting bots
-- **Configuration Screen**: Set up meeting URL, bot name, and start time
-- **Score Card Display**: View meeting results and analytics
-- **Dynamic Navigation**: Right sidebar with bot list and status indicators
-- **Responsive Design**: Works on desktop and mobile devices
+- **Frontend**: React + TypeScript + Tailwind CSS
+- **Backend**: FastAPI + Python + PostgreSQL + Redis
+- **Database**: PostgreSQL with Alembic migrations
+- **Cache**: Redis for session management
+- **Real-time**: WebSocket support for live updates
 
-## Tech Stack
-
-- **React 18** with TypeScript
-- **Tailwind CSS** for styling
-- **Lucide React** for icons
-- **React Router** for navigation
-
-## Project Structure
-
-```
-src/
-├── components/
-│   ├── ConfigScreen.tsx      # Bot configuration form
-│   ├── ScorecardScreen.tsx   # Score display component
-│   └── Sidebar.tsx          # Bot list sidebar
-├── types/
-│   └── index.ts             # TypeScript interfaces
-├── App.tsx                  # Main application component
-├── index.tsx               # React entry point
-└── index.css               # Global styles
-```
-
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js (v14 or higher)
-- npm or yarn
+- Node.js 18+ and npm
+- Python 3.8+
+- Docker and Docker Compose
+- PostgreSQL and Redis (or use Docker)
 
-### Installation
+### Option 1: Full-Stack with Docker (Recommended)
 
-1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd meeting-bot-dashboard
+# Clone the repository
+git clone <your-repo-url>
+cd meahana-frontend
+
+# Copy environment template
+cp env.example .env
+
+# Edit .env with your API keys
+nano .env
+
+# Start all services (frontend + backend + database)
+docker-compose up --build
 ```
 
-2. Install dependencies:
+This will start:
+- Frontend on http://localhost:3000
+- Backend API on http://localhost:8000
+- PostgreSQL on localhost:5432
+- Redis on localhost:6379
+
+### Option 2: Development Mode (Frontend + Backend)
+
 ```bash
+# Install frontend dependencies
 npm install
+
+# Install backend dependencies
+npm run backend:install
+
+# Start both frontend and backend
+npm run dev
 ```
 
-3. Start the development server:
+### Option 3: Backend Only with Docker
+
 ```bash
+# Start only backend services
+npm run backend:docker
+```
+
+## 📁 Project Structure
+
+```
+meahana-frontend/
+├── src/                    # React frontend source
+│   ├── components/         # React components
+│   ├── services/          # API services
+│   └── types/             # TypeScript type definitions
+├── backend/               # Python FastAPI backend
+│   ├── app/              # FastAPI application
+│   │   ├── models/       # Database models
+│   │   ├── routers/      # API routes
+│   │   ├── schemas/      # Pydantic schemas
+│   │   └── services/     # Business logic
+│   ├── alembic/          # Database migrations
+│   └── requirements.txt   # Python dependencies
+├── docker-compose.yml     # Full-stack orchestration
+├── Dockerfile.frontend    # Frontend container
+└── package.json          # Node.js dependencies
+```
+
+## 🔧 Development
+
+### Frontend Development
+
+```bash
+# Start React development server
 npm start
+
+# Build for production
+npm run build
+
+# Run tests
+npm test
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
-
-### Available Scripts
-
-- `npm start` - Runs the app in development mode
-- `npm run build` - Builds the app for production
-- `npm test` - Launches the test runner
-- `npm run eject` - Ejects from Create React App (one-way operation)
-
-## API Integration
-
-The application is fully integrated with the Meeting Bot Service API. The following endpoints are used:
-
-### Create Bot
-```
-POST /api/v1/bots/
-Content-Type: application/json
-
-{
-  "meeting_url": "string",
-  "bot_name": "string",
-  "join_at": "string" (optional)
-}
-```
-
-### Get Meeting Transcripts
-```
-GET /meeting/{meeting_id}/transcripts
-```
-
-### Get Meeting Report
-```
-GET /meeting/{meeting_id}/report
-```
-
-### Environment Configuration
-
-Set the API base URL in your environment:
+### Backend Development
 
 ```bash
-# Development
+# Start FastAPI development server
+npm run backend
+
+# Run with Docker
+npm run backend:docker
+
+# Install Python dependencies
+npm run backend:install
+```
+
+### Database Management
+
+```bash
+# Start database services
+docker-compose up db redis
+
+# Run migrations
+cd backend && alembic upgrade head
+
+# Create new migration
+cd backend && alembic revision --autogenerate -m "description"
+```
+
+## 🌐 API Endpoints
+
+The backend provides the following API endpoints:
+
+- `POST /api/v1/bots/` - Create a new meeting bot
+- `GET /meeting/{id}/report` - Get meeting report
+- `GET /meeting/{id}/transcripts` - Get meeting transcripts
+- `GET /docs` - Interactive API documentation (Swagger UI)
+
+## 🔑 Environment Variables
+
+Copy `env.example` to `.env` and configure:
+
+```bash
+# Frontend
 REACT_APP_API_URL=http://localhost:8000
 
-# Production
-REACT_APP_API_URL=https://your-api-domain.com
+# Backend
+ATTENDEE_API_KEY=your_key_here
+OPENAI_API_KEY=your_key_here
+WEBHOOK_SECRET=your_secret_here
 ```
 
-### API Features
+## 🐳 Docker Commands
 
-- **Real-time Status Updates**: Automatically polls for bot status changes
-- **Report Polling**: Uses exponential backoff to wait for report generation
-- **Error Handling**: Comprehensive error states and retry logic
-- **Loading States**: Shows progress during bot creation (30-60 seconds)
+```bash
+# Start all services
+docker-compose up --build
 
-## Usage
+# Start in background
+docker-compose up -d
 
-1. **Create a New Bot**: Click the "New Bot" button in the sidebar
-2. **Configure Bot**: Fill in the meeting URL, bot name, and start time
-3. **View Results**: Once configured and completed, view the score card
-4. **Manage Multiple Bots**: Use the sidebar to switch between different bots
+# Stop all services
+docker-compose down
 
-## Design System
+# View logs
+docker-compose logs -f
 
-### Colors
-- **Primary**: Blue (#3B82F6) for accents and interactive elements
-- **Background**: White (#FFFFFF) for main content areas
-- **Text**: Black (#000000) for primary text
-- **Borders**: Gray (#E5E7EB) for subtle separators
+# Rebuild specific service
+docker-compose up --build backend
+```
 
-### Status Indicators
-- **Configured**: Blue - Bot is set up but not running
-- **Running**: Yellow - Bot is currently active
-- **Completed**: Green - Bot has finished and results are available
-- **Error**: Red - Bot encountered an error
+## 📊 Monitoring
 
-## Contributing
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+- **Database**: localhost:5432 (user: user, password: password)
+- **Redis**: localhost:6379
+
+## 🚀 Production Deployment
+
+### Build All Services
+
+```bash
+npm run build:all
+```
+
+### Deploy with Docker
+
+```bash
+# Build and push images
+docker-compose -f docker-compose.prod.yml up --build
+
+# Or deploy to cloud platform
+docker-compose -f docker-compose.prod.yml push
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **Port conflicts**: Ensure ports 3000, 8000, 5432, and 6379 are available
+2. **Database connection**: Wait for PostgreSQL to be ready (10-15 seconds)
+3. **API errors**: Check backend logs with `docker-compose logs backend`
+4. **Frontend not loading**: Verify backend is running on port 8000
+
+### Logs
+
+```bash
+# View all logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f backend
+docker-compose logs -f frontend
+```
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
+4. Test with `npm run dev`
 5. Submit a pull request
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License. 

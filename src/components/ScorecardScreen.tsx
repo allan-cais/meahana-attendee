@@ -258,6 +258,13 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
                 <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600">No reports available yet.</p>
                 <p className="text-sm text-gray-500">Reports are generated after the meeting is completed.</p>
+                <button
+                  onClick={onRefresh}
+                  className="mt-4 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Check for Reports
+                </button>
               </div>
             )}
           </div>
