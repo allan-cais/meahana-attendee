@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.models import Meeting, TranscriptChunk, Report
 from app.core.config import settings
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 import logging
 
@@ -14,8 +14,8 @@ client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
 
 class AnalysisService:
-    async def enqueue_analysis(self, db: AsyncSession, meeting_id: int):
-        """Enqueue analysis for a meeting"""
+    async def enqueue_analysis(self, db: AsyncSession, meeting_id: int) -> Optional[Dict[str, Any]]:
+        """Enqueue analysis for a meeting. Returns analysis result or None if failed."""
         logger.info(f"🚀 Starting analysis for meeting {meeting_id}")
         try:
             # Get meeting
@@ -26,7 +26,7 @@ class AnalysisService:
             
             if not meeting:
                 logger.error(f"❌ Meeting not found: {meeting_id}")
-                return
+                return None
             
             logger.info(f"📋 Found meeting {meeting_id}: {meeting.meeting_url}")
             
@@ -42,7 +42,14 @@ class AnalysisService:
             
             if not transcript_chunks:
                 logger.warning(f"⚠️ No transcript chunks found for meeting {meeting_id}")
-                return
+                # Return a default analysis instead of failing
+                default_analysis = self._get_default_analysis()
+                default_analysis["summary"] = "No transcript data available for this meeting"
+                default_analysis["message"] = "Meeting completed but no transcript data was captured"
+                
+                # Still save this default report to prevent infinite loops
+                await self._upsert_report(db, meeting_id, default_analysis)
+                return default_analysis
             
             # Analyze transcript
             logger.info(f"🧠 Starting OpenAI analysis for meeting {meeting_id}")
@@ -53,11 +60,13 @@ class AnalysisService:
             await self._upsert_report(db, meeting_id, analysis_result)
             
             logger.info(f"🎉 Analysis and report creation completed for meeting {meeting_id}")
+            return analysis_result
             
         except Exception as e:
             logger.error(f"❌ Error analyzing meeting {meeting_id}: {e}")
             import traceback
             logger.error(f"📚 Traceback: {traceback.format_exc()}")
+            return None
 
     async def _analyze_transcript(self, transcript_chunks: List[TranscriptChunk]) -> Dict[str, Any]:
         """Analyze transcript using OpenAI"""
@@ -125,7 +134,7 @@ class AnalysisService:
             return self._get_default_analysis()
 
     def _get_default_analysis(self) -> Dict[str, Any]:
-        """Get default analysis when OpenAI fails"""
+        """Get default analysis when OpenAI fails or no transcript data"""
         return {
             "overall_score": 0.5,
             "sentiment": "neutral",

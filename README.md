@@ -32,7 +32,7 @@ cp env.example .env
 # Edit .env with your API keys
 nano .env
 
-# Start all services (frontend + backend + database)
+# Start all services (frontend + backend + database + redis)
 docker-compose up --build
 ```
 
@@ -58,29 +58,8 @@ npm run dev
 ### Option 3: Backend Only with Docker
 
 ```bash
-# Start only backend services
+# Start only backend services (backend + database + redis)
 npm run backend:docker
-```
-
-## 📁 Project Structure
-
-```
-meahana-frontend/
-├── src/                    # React frontend source
-│   ├── components/         # React components
-│   ├── services/          # API services
-│   └── types/             # TypeScript type definitions
-├── backend/               # Python FastAPI backend
-│   ├── app/              # FastAPI application
-│   │   ├── models/       # Database models
-│   │   ├── routers/      # API routes
-│   │   ├── schemas/      # Pydantic schemas
-│   │   └── services/     # Business logic
-│   ├── alembic/          # Database migrations
-│   └── requirements.txt   # Python dependencies
-├── docker-compose.yml     # Full-stack orchestration
-├── Dockerfile.frontend    # Frontend container
-└── package.json          # Node.js dependencies
 ```
 
 ## 🔧 Development
@@ -93,9 +72,6 @@ npm start
 
 # Build for production
 npm run build
-
-# Run tests
-npm test
 ```
 
 ### Backend Development
@@ -145,16 +121,20 @@ REACT_APP_API_URL=http://localhost:8000
 ATTENDEE_API_KEY=your_key_here
 OPENAI_API_KEY=your_key_here
 WEBHOOK_SECRET=your_secret_here
+NGROK_AUTH_TOKEN=your_ngrok_token_here
 ```
 
 ## 🐳 Docker Commands
 
 ```bash
-# Start all services
+# Start all services (frontend + backend + database + redis)
 docker-compose up --build
 
 # Start in background
 docker-compose up -d
+
+# Start only backend services (backend + database + redis)
+docker-compose up --build backend db redis
 
 # Stop all services
 docker-compose down
@@ -162,8 +142,35 @@ docker-compose down
 # View logs
 docker-compose logs -f
 
+# View specific service logs
+docker-compose logs -f backend
+docker-compose logs -f frontend
+docker-compose logs -f db
+docker-compose logs -f redis
+
 # Rebuild specific service
 docker-compose up --build backend
+```
+
+## 📁 Project Structure
+
+```
+meahana-frontend/
+├── src/                    # React frontend source
+│   ├── components/         # React components
+│   ├── services/          # API services
+│   └── types/             # TypeScript type definitions
+├── backend/               # Python FastAPI backend
+│   ├── app/              # FastAPI application
+│   │   ├── models/       # Database models
+│   │   ├── routers/      # API routes
+│   │   ├── schemas/      # Pydantic schemas
+│   │   └── services/     # Business logic
+│   ├── alembic/          # Database migrations
+│   └── requirements.txt   # Python dependencies
+├── docker-compose.yml     # Full-stack orchestration
+├── Dockerfile.frontend    # Frontend container
+└── package.json          # Node.js dependencies
 ```
 
 ## 📊 Monitoring

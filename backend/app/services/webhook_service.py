@@ -59,9 +59,10 @@ class WebhookService:
         # Store webhook event
         webhook_event = WebhookEvent(
             event_type=event_type,
-            event_data=payload.data,
-            raw_payload=payload.model_dump(),
-            bot_id=bot_id
+            event_data=payload.data,  # Use 'event_data' as per model
+            raw_payload=payload.model_dump(),  # Store the full payload
+            meeting_id=None,  # We don't have meeting_id yet
+            processed="false"
         )
         
         db.add(webhook_event)
@@ -97,6 +98,7 @@ class WebhookService:
             await WebhookService._handle_participant_event(payload, db)
         else:
             logger.warning(f"⚠️ Unhandled webhook event: {event_type}")
+            logger.info(f"📦 Full payload for unhandled event: {payload.model_dump()}")
         
         logger.info(f"✅ Webhook event {event_type} processed successfully")
         return {"status": "processed", "event_type": event_type}
@@ -107,20 +109,26 @@ class WebhookService:
         db: AsyncSession, 
         background_tasks: BackgroundTasks
     ):
-        """Handle bot state change events"""
+        """Handle bot state change events according to Attendee API specification"""
         from app.services.bot_service import BotService
         
         bot_id = payload.get_bot_id()
         data = payload.data
-        new_status = data.get("status")
         
-        logger.info(f"Bot {bot_id} state changed to: {new_status}")
+        # Extract state change information per Attendee API spec
+        new_state = data.get("new_state")
+        old_state = data.get("old_state")
+        event_type = data.get("event_type")
+        event_sub_type = data.get("event_sub_type")
         
-        if new_status == "completed":
-            # Bot has completed the meeting
+        logger.info(f"🤖 Bot {bot_id} state change: {old_state} → {new_state}")
+        logger.info(f"📋 Event type: {event_type}, sub-type: {event_sub_type}")
+        
+        if new_state == "ended" and event_type == "post_processing_completed":
+            # Bot has completed post-processing and meeting is ended
             meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
             if meeting:
-                logger.info(f"Bot {bot_id} completed meeting {meeting.id}, updating status")
+                logger.info(f"🎉 Bot {bot_id} completed post-processing for meeting {meeting.id}")
                 
                 # Update meeting status to completed
                 await BotService.update_meeting_status(db, meeting, "completed")
@@ -132,13 +140,21 @@ class WebhookService:
                     bot_id
                 )
                 
-                logger.info(f"Analysis triggered for completed meeting {meeting.id}")
-        elif new_status == "failed":
+                logger.info(f"🚀 Analysis triggered for completed meeting {meeting.id}")
+        elif new_state in ["failed", "error"]:
             # Bot failed
             meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
             if meeting:
-                logger.info(f"Bot {bot_id} failed for meeting {meeting.id}, updating status")
+                logger.info(f"❌ Bot {bot_id} failed for meeting {meeting.id}, updating status")
                 await BotService.update_meeting_status(db, meeting, "failed")
+        elif new_state in ["staged", "join_requested", "joining", "joined_meeting", "joined_recording", "recording_permission_granted"]:
+            # Bot is joining or in meeting
+            meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+            if meeting and meeting.status != "started":
+                logger.info(f"🔄 Bot {bot_id} joining meeting {meeting.id}, updating status to started")
+                await BotService.update_meeting_status(db, meeting, "started")
+        else:
+            logger.info(f"ℹ️ Bot {bot_id} state change to {new_state} (event: {event_type}) - no action needed")
 
     @staticmethod
     async def _handle_bot_recording(payload: WebhookPayload, db: AsyncSession):

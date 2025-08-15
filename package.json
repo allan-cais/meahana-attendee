@@ -5,14 +5,14 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test",
     "eject": "react-scripts eject",
     "dev": "concurrently \"npm run start\" \"npm run backend\"",
     "backend": "./start-backend.sh",
-    "backend:docker": "cd backend && docker-compose up --build",
-    "backend:docker:down": "cd backend && docker-compose down",
+    "backend:docker": "docker-compose up --build backend db redis",
+    "backend:docker:down": "docker-compose down",
     "backend:install": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements-compatible.txt",
-    "fullstack": "concurrently \"npm run start\" \"npm run backend:docker\"",
+    "fullstack": "docker-compose up --build",
+    "fullstack:down": "docker-compose down",
     "build:all": "npm run build && cd backend && docker build -t meeting-bot-backend ."
   },
   "dependencies": {
@@ -35,8 +35,7 @@
   },
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
+      "react-app"
     ]
   },
   "browserslist": {

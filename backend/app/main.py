@@ -59,6 +59,13 @@ async def startup_event():
     # Development environment - handle ngrok
     logger.info("Running in development environment")
     
+    # Check if external ngrok URL is configured in settings
+    if settings.ngrok_external_url:
+        logger.info(f"External ngrok URL configured: {settings.ngrok_external_url}")
+        ngrok_service.set_external_url(settings.ngrok_external_url)
+        logger.info(f"Webhook URL: {ngrok_service.get_webhook_url()}")
+        return
+    
     # Try to detect external ngrok tunnel first
     ngrok_service.refresh_external_detection()
     

@@ -42,9 +42,13 @@ async def get_webhook_debug_info(db: AsyncSession = Depends(get_db)):
                 {
                     "id": event.id,
                     "event_type": event.event_type,
+                    "meeting_id": event.meeting_id,
                     "bot_id": event.bot_id,
                     "created_at": event.created_at.isoformat(),
-                    "event_data": event.event_data
+                    "event_data": event.event_data,
+                    "raw_payload": event.raw_payload,
+                    "processed": event.processed,
+                    "processed_at": event.processed_at.isoformat() if event.processed_at else None
                 }
                 for event in webhook_events
             ],
@@ -63,6 +67,34 @@ async def get_webhook_debug_info(db: AsyncSession = Depends(get_db)):
         
     except Exception as e:
         logger.error(f"Error getting webhook debug info: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/url")
+async def get_webhook_url():
+    """Get the current webhook URL for copying to external services"""
+    try:
+        from app.services.webhook_service import WebhookService
+        
+        webhook_url = WebhookService.get_webhook_url()
+        
+        if not webhook_url:
+            raise HTTPException(status_code=404, detail="No webhook URL configured")
+        
+        return {
+            "webhook_url": webhook_url,
+            "message": "Copy this URL to the Attendee API webhook configuration",
+            "instructions": [
+                "1. Go to the Attendee API Developer Portal",
+                "2. Create a new webhook",
+                "3. Paste this URL into the 'Webhook URL' field",
+                "4. Select all triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave",
+                "5. Click 'Create'"
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting webhook URL: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

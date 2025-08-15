@@ -102,8 +102,9 @@ class BotService:
                                 ]
                             }
                         ]
-                        logger.info(f"✅ Adding bot-level webhook to payload: {webhook_url}")
-                        logger.info(f"📋 Webhook triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave")
+                        logger.info(f"✅ Adding webhook configuration per Attendee API spec: {webhook_url}")
+                        logger.info(f"📋 Webhook triggers: {payload['webhooks'][0]['triggers']}")
+                        logger.info(f"🎯 This will notify us of: bot state changes, transcript updates, chat messages, and participant events")
                     else:
                         logger.warning("❌ No webhook URL available - webhooks will not be received")
                     
@@ -200,4 +201,107 @@ class BotService:
         meeting.status = status
         await db.commit()
         await db.refresh(meeting)
-        return meeting 
+        return meeting
+
+    @staticmethod
+    async def poll_bot_status(db: AsyncSession, bot_id: str) -> dict:
+        """Poll the Attendee API for bot status updates"""
+        try:
+            # Test DNS resolution first and get IP address
+            try:
+                ip = socket.gethostbyname("app.attendee.dev")
+                logger.info(f"DNS resolution successful: app.attendee.dev -> {ip}")
+                
+                # Use IP address directly with Host header
+                api_url = f"https://{ip}/api/v1/bots/{bot_id}"
+                host_header = "app.attendee.dev"
+                
+            except Exception as dns_error:
+                logger.error(f"DNS resolution failed: {dns_error}")
+                raise
+            
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                headers = {
+                    "Authorization": f"Token {settings.attendee_api_key}",
+                    "Content-Type": "application/json",
+                    "Host": host_header,
+                }
+                
+                logger.info(f"🔍 Polling bot status from Attendee API: {api_url}")
+                
+                response = await client.get(
+                    api_url,
+                    headers=headers,
+                    timeout=30.0
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                logger.info(f"📥 Received bot status from Attendee API: {json.dumps(data, indent=2)}")
+                
+                return data
+                
+        except Exception as e:
+            logger.error(f"Error polling bot status for {bot_id}: {e}")
+            raise
+
+    @staticmethod
+    async def add_webhook_to_existing_bot(db: AsyncSession, bot_id: str) -> dict:
+        """Add webhook configuration to an existing bot"""
+        try:
+            # Test DNS resolution first and get IP address
+            try:
+                ip = socket.gethostbyname("app.attendee.dev")
+                logger.info(f"DNS resolution successful: app.attendee.dev -> {ip}")
+                
+                # Use IP address directly with Host header
+                api_url = f"https://{ip}/api/v1/bots/{bot_id}/webhooks"
+                host_header = "app.attendee.dev"
+                
+            except Exception as dns_error:
+                logger.error(f"DNS resolution failed: {dns_error}")
+                raise
+            
+            # Get webhook URL
+            webhook_url = WebhookService.get_webhook_url()
+            if not webhook_url:
+                raise ValueError("No webhook URL available")
+            
+            webhook_payload = {
+                "url": webhook_url,
+                "triggers": [
+                    "bot.state_change",
+                    "transcript.update",
+                    "chat_messages.update",
+                    "participant_events.join_leave"
+                ]
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                headers = {
+                    "Authorization": f"Token {settings.attendee_api_key}",
+                    "Content-Type": "application/json",
+                    "Host": host_header,
+                }
+                
+                logger.info(f"🔗 Adding webhook to existing bot {bot_id}: {api_url}")
+                logger.info(f"📋 Webhook payload: {json.dumps(webhook_payload, indent=2)}")
+                
+                response = await client.post(
+                    api_url,
+                    json=webhook_payload,
+                    headers=headers,
+                    timeout=30.0
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                logger.info(f"✅ Successfully added webhook to bot {bot_id}: {json.dumps(data, indent=2)}")
+                
+                return data
+                
+        except Exception as e:
+            logger.error(f"Error adding webhook to bot {bot_id}: {e}")
+            raise 

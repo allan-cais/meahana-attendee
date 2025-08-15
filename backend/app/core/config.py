@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     auto_start_ngrok: bool = Field(default=True, description="Auto-start ngrok tunnel on startup")
     ngrok_subdomain: Optional[str] = Field(default=None, description="Ngrok subdomain (requires auth token)")
     ngrok_port: int = Field(default=8000, description="Port for ngrok tunnel")
+    ngrok_external_url: Optional[str] = Field(default=None, description="External ngrok URL (if using external tunnel)")
     
     # App settings
     app_name: str = Field(default="Meeting Bot Service", description="Application name")
@@ -59,7 +60,7 @@ class Settings(BaseSettings):
         return None
     
     class Config:
-        env_file = ".env"
+        env_file = ".env"  # Look for .env in the backend directory
         env_file_encoding = "utf-8"
         extra = "ignore"  # Ignore extra environment variables
 

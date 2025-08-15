@@ -43,6 +43,125 @@ async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Failed to get bot")
 
 
+@router.delete("/{bot_id}")
+async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a meeting bot"""
+    try:
+        result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
+        meeting = result.scalar_one_or_none()
+        
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        
+        # Delete the meeting (this will cascade to related records)
+        await db.delete(meeting)
+        await db.commit()
+        
+        logger.info(f"Deleted bot {bot_id}")
+        return {"message": f"Bot {bot_id} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting bot {bot_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete bot")
+
+
+@router.post("/{bot_id}/poll-status")
+async def poll_bot_status(bot_id: int, db: AsyncSession = Depends(get_db)):
+    """Manually poll the Attendee API for bot status updates"""
+    try:
+        result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
+        meeting = result.scalar_one_or_none()
+        
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        
+        if not meeting.bot_id:
+            raise HTTPException(status_code=400, detail="Bot has no bot_id to poll")
+        
+        # Poll the Attendee API for status updates
+        from app.services.bot_service import BotService
+        status_data = await BotService.poll_bot_status(db, meeting.bot_id)
+        
+        # Extract status from the response and map to our enum values
+        attendee_state = status_data.get("state", "unknown")
+        logger.info(f"Bot {bot_id} state from Attendee API: {attendee_state}")
+        
+        # Map Attendee API state to our MeetingStatus enum
+        if attendee_state == "ended":
+            if status_data.get("transcription_state") == "complete" and status_data.get("recording_state") == "complete":
+                bot_status = "COMPLETED"
+            else:
+                bot_status = "FAILED"
+        elif attendee_state == "started":
+            bot_status = "STARTED"
+        elif attendee_state == "pending":
+            bot_status = "PENDING"
+        else:
+            bot_status = "FAILED"
+        
+        logger.info(f"Mapped bot {bot_id} state '{attendee_state}' to status '{bot_status}'")
+        
+        # Update meeting status if it has changed
+        if bot_status != meeting.status:
+            logger.info(f"Updating meeting {bot_id} status from '{meeting.status}' to '{bot_status}'")
+            await BotService.update_meeting_status(db, meeting, bot_status)
+            
+            # If bot is completed, trigger analysis
+            if bot_status == "COMPLETED":
+                logger.info(f"Bot {bot_id} completed, triggering analysis")
+                from app.services.analysis_service import AnalysisService
+                analysis_service = AnalysisService()
+                await analysis_service.enqueue_analysis(db, meeting.id)
+        
+        return {
+            "bot_id": bot_id,
+            "old_status": meeting.status,
+            "new_status": bot_status,
+            "status_updated": bot_status != meeting.status,
+            "attendee_api_data": status_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error polling bot status for {bot_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{bot_id}/add-webhook")
+async def add_webhook_to_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
+    """Add webhook configuration to an existing bot"""
+    try:
+        result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
+        meeting = result.scalar_one_or_none()
+        
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        
+        if not meeting.bot_id:
+            raise HTTPException(status_code=400, detail="Bot has no bot_id")
+        
+        # Add webhook to the bot via Attendee API
+        from app.services.bot_service import BotService
+        webhook_result = await BotService.add_webhook_to_existing_bot(db, meeting.bot_id)
+        
+        logger.info(f"Successfully added webhook to bot {bot_id}")
+        
+        return {
+            "bot_id": bot_id,
+            "message": "Webhook added successfully",
+            "webhook_data": webhook_result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding webhook to bot {bot_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.post("/", response_model=MeetingResponse)
 async def create_bot(
     meeting_data: MeetingCreate,

@@ -8,7 +8,7 @@ export interface MeetingBot {
   id: number;
   meeting_url: string;
   bot_id: string;
-  status: 'pending' | 'started' | 'completed' | 'failed';
+  status: 'PENDING' | 'STARTED' | 'COMPLETED' | 'FAILED';
   meeting_metadata: {
     bot_name: string;
     join_at?: string;
@@ -58,6 +58,13 @@ export interface ReportData {
   status: string;
   reports: Report[];
   message: string | null;
+}
+
+export interface ScorecardResponse {
+  meeting_id: number;
+  status: 'available' | 'processing' | 'unavailable' | 'error';
+  message: string;
+  scorecard: ReportScore | null;
 }
 
 export interface CreateBotRequest {

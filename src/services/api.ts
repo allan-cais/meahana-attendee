@@ -1,9 +1,7 @@
 /**
  * API Service for Meeting Bot Dashboard
  * 
- * FIXED: Double /api/ issue
- * The service now automatically detects and prevents duplicate /api/ paths
- * that were causing requests to /api/api/v1/bots/ instead of /api/v1/bots/
+ * Handles all API communication with the backend service
  */
 
 import { 
@@ -11,18 +9,12 @@ import {
   CreateBotResponse, 
   MeetingBot, 
   TranscriptData, 
-  ReportData 
+  ReportData,
+  ScorecardResponse
 } from '../types';
 
 // Clean the API base URL to remove any trailing slashes
 const API_BASE_URL = (process.env.REACT_APP_API_URL || 'http://localhost:8000').replace(/\/$/, '');
-
-// Log API configuration for debugging
-console.log('=== API Configuration Debug ===');
-console.log('Environment REACT_APP_API_URL:', process.env.REACT_APP_API_URL);
-console.log('API_BASE_URL configured as:', API_BASE_URL);
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('================================');
 
 // Utility function to properly construct URLs
 function constructUrl(baseUrl: string, endpoint: string): string {
@@ -37,9 +29,6 @@ function constructUrl(baseUrl: string, endpoint: string): string {
   let finalBase = cleanBase;
   if (cleanBase.endsWith('/api') && cleanEndpoint.startsWith('/api/')) {
     finalBase = cleanBase.slice(0, -4); // Remove '/api' from the end
-    console.log('🔧 FIXED: Removed /api from base URL to prevent duplication');
-    console.log(`   Original base: ${cleanBase}`);
-    console.log(`   Adjusted base: ${finalBase}`);
   }
   
   // Construct URL
@@ -50,10 +39,7 @@ function constructUrl(baseUrl: string, endpoint: string): string {
   
   // Final safety check: if we still have double /api/, fix it
   if (finalUrl.includes('/api/api/')) {
-    console.log('🚨 CRITICAL: Double /api/ still detected after initial fix!');
-    console.log(`   URL before final fix: ${finalUrl}`);
     finalUrl = finalUrl.replace('/api/api/', '/api/');
-    console.log(`   URL after final fix: ${finalUrl}`);
   }
   
   return finalUrl;
@@ -65,11 +51,6 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<T> {
     const url = constructUrl(API_BASE_URL, endpoint);
-    
-    // Log API request for debugging (only in development)
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`🌐 API Request: ${endpoint} → ${url}`);
-    }
     
     const defaultOptions: RequestInit = {
       headers: {
@@ -87,9 +68,9 @@ class ApiService {
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      return await response.json();
+      const data = await response.json();
+      return data;
     } catch (error) {
-      console.error(`API request failed for ${endpoint}:`, error);
       // Re-throw as a standard Error to ensure it's catchable
       throw new Error(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -97,13 +78,10 @@ class ApiService {
 
   // Create a new meeting bot
   async createBot(request: CreateBotRequest): Promise<CreateBotResponse> {
-    console.log('Creating bot with request:', request);
-    
     const result = await this.makeRequest<CreateBotResponse>('/api/v1/bots/', {
       method: 'POST',
       body: JSON.stringify(request),
     });
-    console.log('API call successful:', result);
     return result;
   }
 
@@ -114,10 +92,7 @@ class ApiService {
 
   // Get meeting report
   async getReport(meetingId: number): Promise<ReportData> {
-    console.log('Fetching report for meeting ID:', meetingId);
-    
     const result = await this.makeRequest<ReportData>(`/meeting/${meetingId}/report`);
-    console.log('Report API call successful:', result);
     return result;
   }
 
@@ -125,6 +100,8 @@ class ApiService {
   async pollForReport(meetingId: number, maxAttempts: number = 10): Promise<ReportData> {
     let attempt = 0;
     let delay = 2000; // Start with 2 seconds
+
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
     while (attempt < maxAttempts) {
       try {
@@ -136,18 +113,17 @@ class ApiService {
         }
 
         // If meeting is still in progress, wait longer
-        if (report.status === 'started') {
-          await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+        if (report.status === 'STARTED') {
+          await wait(10000); // Wait 10 seconds
         } else {
           // If report is being generated, use exponential backoff
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await wait(delay);
           delay = Math.min(delay * 1.5, 30000); // Max 30 seconds
         }
 
         attempt++;
       } catch (error) {
-        console.error(`Poll attempt ${attempt + 1} failed:`, error);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await wait(delay);
         delay = Math.min(delay * 1.5, 30000);
         attempt++;
       }
@@ -156,54 +132,70 @@ class ApiService {
     throw new Error('Report polling timed out');
   }
 
-  // Get all bots (this would need to be implemented on the backend)
+  // Get all bots
   async getBots(): Promise<MeetingBot[]> {
     try {
       const result = await this.makeRequest<MeetingBot[]>('/api/v1/bots/');
-      console.log('Retrieved bots from API:', result);
       return result;
     } catch (error) {
-      console.error('Failed to get bots:', error);
       return [];
     }
   }
 
   // Get a specific bot by ID
   async getBot(botId: number): Promise<MeetingBot> {
-    try {
-      const result = await this.makeRequest<MeetingBot>(`/api/v1/bots/${botId}`);
-      console.log(`Retrieved bot ${botId} from API:`, result);
-      return result;
-    } catch (error) {
-      console.error(`Failed to get bot ${botId}:`, error);
-      throw error;
-    }
+    const result = await this.makeRequest<MeetingBot>(`/api/v1/bots/${botId}`);
+    return result;
+  }
+
+  // Delete a bot
+  async deleteBot(botId: number): Promise<{message: string}> {
+    const result = await this.makeRequest<{message: string}>(`/api/v1/bots/${botId}`, {
+      method: 'DELETE',
+    });
+    return result;
+  }
+
+  // Poll for bot status updates
+  async pollBotStatus(botId: number): Promise<any> {
+    const result = await this.makeRequest<any>(`/api/v1/bots/${botId}/poll-status`, {
+      method: 'POST',
+    });
+    return result;
+  }
+
+  // Add webhook to existing bot
+  async addWebhookToBot(botId: number): Promise<any> {
+    const result = await this.makeRequest<any>(`/api/v1/bots/${botId}/add-webhook`, {
+      method: 'POST',
+    });
+    return result;
   }
 
   // Manually trigger analysis for a meeting
   async triggerAnalysis(meetingId: number): Promise<{message: string}> {
-    try {
-      const result = await this.makeRequest<{message: string}>(`/meeting/${meetingId}/trigger-analysis`, {
-        method: 'POST',
-      });
-      console.log(`Analysis triggered for meeting ${meetingId}:`, result);
-      return result;
-    } catch (error) {
-      console.error(`Failed to trigger analysis for meeting ${meetingId}:`, error);
-      throw error;
-    }
+    const result = await this.makeRequest<{message: string}>(`/meeting/${meetingId}/trigger-analysis`, {
+      method: 'POST',
+    });
+    return result;
   }
 
-  // Get webhook debug information
-  async getWebhookDebugInfo(): Promise<any> {
-    try {
-      const result = await this.makeRequest<any>('/webhook/debug');
-      console.log('Webhook debug info:', result);
-      return result;
-    } catch (error) {
-      console.error('Failed to get webhook debug info:', error);
-      throw error;
-    }
+  // Get webhook information
+  async getWebhookInfo(): Promise<any> {
+    const result = await this.makeRequest<any>('/webhook/debug');
+    return result;
+  }
+
+  // Get current webhook URL
+  async getWebhookUrl(): Promise<any> {
+    const result = await this.makeRequest<any>('/webhook/url');
+    return result;
+  }
+
+  // Get meeting scorecard
+  async getMeetingScorecard(meetingId: number): Promise<ScorecardResponse> {
+    const result = await this.makeRequest<ScorecardResponse>(`/meeting/${meetingId}/scorecard`);
+    return result;
   }
 }
 
