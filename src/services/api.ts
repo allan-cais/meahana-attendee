@@ -1,3 +1,11 @@
+/**
+ * API Service for Meeting Bot Dashboard
+ * 
+ * FIXED: Double /api/ issue
+ * The service now automatically detects and prevents duplicate /api/ paths
+ * that were causing requests to /api/api/v1/bots/ instead of /api/v1/bots/
+ */
+
 import { 
   CreateBotRequest, 
   CreateBotResponse, 
@@ -6,14 +14,58 @@ import {
   ReportData 
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://js-cais-dev-97449-u35829.vm.elestio.app';
+// Clean the API base URL to remove any trailing slashes
+const API_BASE_URL = (process.env.REACT_APP_API_URL || 'https://js-cais-dev-97449-u35829.vm.elestio.app').replace(/\/$/, '');
+
+// Log API configuration for debugging
+console.log('API Service initialized with base URL:', API_BASE_URL);
+
+// Utility function to properly construct URLs
+function constructUrl(baseUrl: string, endpoint: string): string {
+  // Remove trailing slash from base URL
+  const cleanBase = baseUrl.replace(/\/$/, '');
+  
+  // Ensure endpoint starts with /
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  
+  // Check if base URL already contains /api and endpoint also starts with /api
+  // If so, remove the /api from the base URL to avoid duplication
+  let finalBase = cleanBase;
+  if (cleanBase.endsWith('/api') && cleanEndpoint.startsWith('/api/')) {
+    finalBase = cleanBase.slice(0, -4); // Remove '/api' from the end
+    console.log('🔧 FIXED: Removed /api from base URL to prevent duplication');
+    console.log(`   Original base: ${cleanBase}`);
+    console.log(`   Adjusted base: ${finalBase}`);
+  }
+  
+  // Construct URL
+  const url = `${finalBase}${cleanEndpoint}`;
+  
+  // Remove any double slashes (except for protocol)
+  let finalUrl = url.replace(/([^:])\/+/g, '$1/');
+  
+  // Final safety check: if we still have double /api/, fix it
+  if (finalUrl.includes('/api/api/')) {
+    console.log('🚨 CRITICAL: Double /api/ still detected after initial fix!');
+    console.log(`   URL before final fix: ${finalUrl}`);
+    finalUrl = finalUrl.replace('/api/api/', '/api/');
+    console.log(`   URL after final fix: ${finalUrl}`);
+  }
+  
+  return finalUrl;
+}
 
 class ApiService {
   private async makeRequest<T>(
     endpoint: string, 
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const url = constructUrl(API_BASE_URL, endpoint);
+    
+    // Log API request for debugging (only in development)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🌐 API Request: ${endpoint} → ${url}`);
+    }
     
     const defaultOptions: RequestInit = {
       headers: {

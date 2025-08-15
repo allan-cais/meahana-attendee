@@ -16,6 +16,18 @@ REACT_APP_API_URL=http://localhost:8000
 REACT_APP_API_URL=https://js-cais-dev-97449-u35829.vm.elestio.app
 ```
 
+**⚠️ IMPORTANT:** Do NOT include `/api` at the end of the `REACT_APP_API_URL`. The application automatically appends the correct API endpoints.
+
+**❌ Incorrect:**
+```bash
+REACT_APP_API_URL=https://js-cais-dev-97449-u35829.vm.elestio.app/api
+```
+
+**✅ Correct:**
+```bash
+REACT_APP_API_URL=https://js-cais-dev-97449-u35829.vm.elestio.app
+```
+
 ### Default Configuration
 
 If no environment variable is set, the application will default to the production URL: `https://js-cais-dev-97449-u35829.vm.elestio.app`
@@ -25,6 +37,7 @@ If no environment variable is set, the application will default to the productio
 1. **Removed Mock Data**: All mock data and simulation functionality has been removed from the API service
 2. **Updated API Base URL**: Changed from localhost to the new hosting URL
 3. **Pure API Reliance**: The application now relies entirely on backend API calls
+4. **Fixed Double /api/ Issue**: Automatically prevents duplicate `/api/` paths in API URLs
 
 ## Building for Production
 
@@ -47,3 +60,4 @@ The application expects the following API endpoints to be available:
 - The application no longer falls back to mock data if the API is unavailable
 - All API calls will fail gracefully with proper error handling
 - Ensure your backend API is running and accessible at the configured URL
+- The application now automatically fixes any URL construction issues to prevent duplicate `/api/` paths
