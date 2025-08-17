@@ -9,17 +9,28 @@ cd backend
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
     echo "📦 Virtual environment not found. Creating one..."
-    python3 -m venv venv
+    /usr/local/bin/python3 -m venv venv
 fi
 
 # Activate virtual environment
 echo "🔧 Activating virtual environment..."
 source venv/bin/activate
 
+# Verify activation worked
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "❌ Virtual environment activation failed. Using system Python..."
+    PYTHON_CMD="/usr/local/bin/python3"
+    PIP_CMD="/usr/local/bin/pip3"
+else
+    echo "✅ Virtual environment activated: $VIRTUAL_ENV"
+    PYTHON_CMD="python"
+    PIP_CMD="pip"
+fi
+
 # Check if dependencies are installed
-if ! python -c "import fastapi" 2>/dev/null; then
+if ! $PYTHON_CMD -c "import fastapi" 2>/dev/null; then
     echo "📥 Installing dependencies..."
-    pip install -r requirements-compatible.txt
+    $PIP_CMD install -r requirements-compatible.txt
 fi
 
 # Start the backend server
@@ -29,4 +40,4 @@ echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+$PYTHON_CMD -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
