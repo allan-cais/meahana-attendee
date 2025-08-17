@@ -23,8 +23,8 @@ A full-stack application for managing meeting bots with real-time transcription 
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd meahana-frontend
+git clone https://github.com/customaistudio/meahana-attendee.git
+cd meahana-attendee
 
 # Copy environment template
 cp env.example .env
@@ -155,7 +155,7 @@ docker-compose up --build backend
 ## 📁 Project Structure
 
 ```
-meahana-frontend/
+meahana-attendee/
 ├── src/                    # React frontend source
 │   ├── components/         # React components
 │   ├── services/          # API services
