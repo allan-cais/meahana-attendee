@@ -62,9 +62,10 @@ export interface ReportData {
 
 export interface ScorecardResponse {
   meeting_id: number;
-  status: 'available' | 'processing' | 'unavailable' | 'error';
+  status: 'available' | 'processing' | 'unavailable' | 'error' | 'processing_needed' | 'no_data';
   message: string;
   scorecard: ReportScore | null;
+  created_at?: string;
 }
 
 export interface CreateBotRequest {

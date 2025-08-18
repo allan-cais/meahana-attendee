@@ -6,6 +6,7 @@ interface ScorecardScreenProps {
   scorecardData: ScorecardResponse | null;
   config?: MeetingConfig;
   onRefresh: () => void;
+  onTriggerAnalysis?: () => void;
   loading: boolean;
   error: string | null;
 }
@@ -14,6 +15,7 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
   scorecardData,
   config,
   onRefresh,
+  onTriggerAnalysis,
   loading,
   error
 }) => {
@@ -146,7 +148,9 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
                   <h3 className="text-lg font-semibold text-black">AI-Generated Scorecard</h3>
                   <div className="text-right">
                     <span className="text-sm text-gray-500">Generated on</span>
-                    <p className="text-sm font-medium text-gray-700">{formatDate(new Date().toISOString())}</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {scorecardData.created_at ? formatDate(scorecardData.created_at) : 'Unknown'}
+                    </p>
                   </div>
                 </div>
 
@@ -291,15 +295,36 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
             {scorecardData && !scorecardData.scorecard && (
               <div className="text-center py-12">
                 <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No scorecard available yet.</p>
-                <p className="text-sm text-gray-500">Scorecards are generated after the meeting is completed and transcript data is available.</p>
-                <button
-                  onClick={onRefresh}
-                  className="mt-4 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Check for Scorecard
-                </button>
+                {scorecardData.status === 'processing_needed' ? (
+                  <>
+                    <p className="text-gray-600">Analysis needed to generate scorecard.</p>
+                    <p className="text-sm text-gray-500">The meeting has completed with transcript data, but AI analysis is required to create the scorecard.</p>
+                    <button
+                      onClick={onTriggerAnalysis || onRefresh}
+                      className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Trigger Analysis
+                    </button>
+                  </>
+                ) : scorecardData.status === 'no_data' ? (
+                  <>
+                    <p className="text-gray-600">No transcript data available.</p>
+                    <p className="text-sm text-gray-500">The meeting completed but no transcript data was captured. Cannot generate scorecard.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-600">No scorecard available yet.</p>
+                    <p className="text-sm text-gray-500">Scorecards are generated after the meeting is completed and transcript data is available.</p>
+                    <button
+                      onClick={onRefresh}
+                      className="mt-4 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Check for Scorecard
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

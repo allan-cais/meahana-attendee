@@ -220,36 +220,14 @@ async def get_meeting_scorecard(
                         "scorecard": None
                     }
                 
-                # Try to trigger analysis if meeting is completed, has transcript data, but no reports exist
-                try:
-                    analysis_service = AnalysisService()
-                    analysis_result = await analysis_service.enqueue_analysis(db, meeting_id)
-                    
-                    if analysis_result:
-                        # Analysis completed successfully
-                        return {
-                            "meeting_id": meeting_id,
-                            "status": "available",
-                            "message": "Scorecard generated successfully",
-                            "scorecard": analysis_result
-                        }
-                    else:
-                        # Analysis failed
-                        return {
-                            "meeting_id": meeting_id,
-                            "status": "error",
-                            "message": "Failed to generate scorecard. Please try again later.",
-                            "scorecard": None
-                        }
-                        
-                except Exception as e:
-                    logger.error(f"Failed to generate scorecard for meeting {meeting_id}: {e}")
-                    return {
-                        "meeting_id": meeting_id,
-                        "status": "error",
-                        "message": "Failed to generate scorecard. Please try again later.",
-                        "scorecard": None
-                    }
+                # If meeting is completed, has transcript data, but no reports exist,
+                # return status indicating analysis is needed but don't trigger it here
+                return {
+                    "meeting_id": meeting_id,
+                    "status": "processing_needed",
+                    "message": "Meeting completed with transcript data. Analysis is needed to generate scorecard.",
+                    "scorecard": None
+                }
             else:
                 return {
                     "meeting_id": meeting_id,
@@ -258,13 +236,16 @@ async def get_meeting_scorecard(
                     "scorecard": None
                 }
         
-        # Return the scorecard
+        # Return the existing scorecard from database
         scorecard = meeting.reports[0].score if meeting.reports else None
+        report_created_at = meeting.reports[0].created_at if meeting.reports else None
+        
         return {
             "meeting_id": meeting_id,
             "status": "available",
-            "message": "Scorecard generated successfully",
-            "scorecard": scorecard
+            "message": "Scorecard available",
+            "scorecard": scorecard,
+            "created_at": report_created_at.isoformat() if report_created_at else None
         }
         
     except HTTPException:

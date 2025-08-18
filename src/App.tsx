@@ -401,31 +401,19 @@ const App: React.FC = () => {
               </div>
               
               {/* Action Buttons */}
-              {selectedBotId && (
+              {selectedBotId && selectedBot && selectedBot.status === 'COMPLETED' && 
+               (!currentScorecardData || !currentScorecardData.scorecard) && (
                 <div className="flex gap-2">
                   <button
-                    onClick={() => refreshBotStatus()}
+                    onClick={() => fetchScorecardData()}
                     disabled={loading}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
                   >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    {loading ? 'Checking...' : 'Check Status'}
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    {loading ? 'Fetching...' : 'Fetch Scorecard'}
                   </button>
-                  
-                  {/* Show fetch scorecard button if bot is completed but no scorecard */}
-                  {selectedBot && selectedBot.status === 'COMPLETED' && 
-                   (!currentScorecardData || !currentScorecardData.scorecard) && (
-                    <button
-                      onClick={() => fetchScorecardData()}
-                      disabled={loading}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      {loading ? 'Fetching...' : 'Fetch Scorecard'}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -454,6 +442,24 @@ const App: React.FC = () => {
                 scorecardData={currentScorecardData}
                 config={config}
                 onRefresh={() => fetchScorecardData()}
+                onTriggerAnalysis={async () => {
+                  if (selectedBotId) {
+                    try {
+                      setLoading(true);
+                      await apiService.triggerAnalysis(selectedBotId);
+                      // Wait a bit then fetch the updated scorecard
+                      setTimeout(() => {
+                        if (isMounted.current) {
+                          fetchScorecardData(selectedBotId);
+                        }
+                      }, 3000);
+                    } catch (error) {
+                      setError(error instanceof Error ? error.message : 'Failed to trigger analysis');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }
+                }}
                 loading={loading}
                 error={error}
               />
