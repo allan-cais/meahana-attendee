@@ -6,7 +6,7 @@ from app.schemas.schemas import WebhookPayload
 from app.core.config import settings
 from fastapi import BackgroundTasks
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,7 @@ class WebhookService:
         # Store webhook event
         webhook_event = WebhookEvent(
             event_type=event_type,
+            bot_id=bot_id,  # Store the bot_id for proper tracking
             event_data=payload.data,  # Use 'event_data' as per model
             raw_payload=payload.model_dump(),  # Store the full payload
             meeting_id=None,  # We don't have meeting_id yet
@@ -71,34 +72,56 @@ class WebhookService:
         
         logger.info(f"💾 Stored webhook event {event_type} with ID {webhook_event.id}")
         
+        # Process webhook delivery tracking
+        from app.services.webhook_delivery_service import webhook_delivery_service
+        await webhook_delivery_service.process_webhook_delivery(webhook_event, db)
+        
         # Handle different event types (both Attendee trigger format and legacy event format)
-        if event_type in ["bot.state_change", "bot.join_requested", "bot.joining", "bot.joined"]:
-            logger.info(f"🤖 Handling bot state change event: {event_type}")
-            await WebhookService._handle_bot_state_change(payload, db, background_tasks)
-        elif event_type in ["bot.recording", "bot.started_recording"]:
-            logger.info(f"🎥 Handling bot recording event: {event_type}")
-            await WebhookService._handle_bot_recording(payload, db)
-        elif event_type in ["bot.left", "bot.completed"]:
-            logger.info(f"✅ Handling bot completion event: {event_type}")
-            await WebhookService._handle_bot_completed(payload, db, background_tasks)
-        elif event_type in ["bot.failed"]:
-            logger.info(f"❌ Handling bot failure event: {event_type}")
-            await WebhookService._handle_bot_failed(payload, db)
-        elif event_type in ["transcript.update", "transcript.chunk"]:
-            logger.info(f"📝 Handling transcript update event: {event_type}")
-            await WebhookService._handle_transcript_chunk(payload, db)
-        elif event_type in ["transcript.completed"]:
-            logger.info(f"🏁 Handling transcript completion event: {event_type}")
-            await WebhookService._handle_transcript_completed(payload, db, background_tasks)
-        elif event_type in ["chat_messages.update"]:
-            logger.info(f"💬 Handling chat message event: {event_type}")
-            await WebhookService._handle_chat_message(payload, db)
-        elif event_type in ["participant_events.join_leave"]:
-            logger.info(f"👥 Handling participant event: {event_type}")
-            await WebhookService._handle_participant_event(payload, db)
-        else:
-            logger.warning(f"⚠️ Unhandled webhook event: {event_type}")
-            logger.info(f"📦 Full payload for unhandled event: {payload.model_dump()}")
+        try:
+            if event_type in ["bot.state_change", "bot.join_requested", "bot.joining", "bot.joined"]:
+                logger.info(f"🤖 Handling bot state change event: {event_type}")
+                await WebhookService._handle_bot_state_change(payload, db, background_tasks)
+            elif event_type in ["bot.recording", "bot.started_recording"]:
+                logger.info(f"🎥 Handling bot recording event: {event_type}")
+                await WebhookService._handle_bot_recording(payload, db)
+            elif event_type in ["bot.left", "bot.completed"]:
+                logger.info(f"✅ Handling bot completion event: {event_type}")
+                await WebhookService._handle_bot_completed(payload, db, background_tasks)
+            elif event_type in ["bot.failed"]:
+                logger.info(f"❌ Handling bot failure event: {event_type}")
+                await WebhookService._handle_bot_failed(payload, db)
+            elif event_type in ["transcript.update", "transcript.chunk"]:
+                logger.info(f"📝 Handling transcript update event: {event_type}")
+                await WebhookService._handle_transcript_chunk(payload, db)
+            elif event_type in ["transcript.completed"]:
+                logger.info(f"🏁 Handling transcript completion event: {event_type}")
+                await WebhookService._handle_transcript_completed(payload, db, background_tasks)
+            elif event_type in ["chat_messages.update"]:
+                logger.info(f"💬 Handling chat message event: {event_type}")
+                await WebhookService._handle_chat_message(payload, db)
+            elif event_type in ["participant_events.join_leave"]:
+                logger.info(f"👥 Handling participant event: {event_type}")
+                await WebhookService._handle_participant_event(payload, db)
+            else:
+                logger.warning(f"⚠️ Unhandled webhook event: {event_type}")
+                logger.info(f"📦 Full payload for unhandled event: {payload.model_dump()}")
+        except Exception as e:
+            logger.error(f"❌ Error processing webhook event {event_type}: {e}")
+            import traceback
+            logger.error(f"📚 Traceback: {traceback.format_exc()}")
+            
+            # Mark webhook as failed
+            webhook_event.processed = "false"
+            webhook_event.delivery_status = "failed"
+            webhook_event.delivery_error = str(e)
+            await db.commit()
+            
+            raise  # Re-raise to trigger the 500 response
+        
+        # Mark webhook as processed
+        webhook_event.processed = "true"
+        webhook_event.processed_at = datetime.now(timezone.utc)
+        await db.commit()
         
         logger.info(f"✅ Webhook event {event_type} processed successfully")
         return {"status": "processed", "event_type": event_type}
@@ -240,10 +263,10 @@ class WebhookService:
             if timestamp_str:
                 timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
             else:
-                timestamp = datetime.utcnow()
+                timestamp = datetime.now(timezone.utc)
         except Exception as e:
             logger.warning(f"Failed to parse timestamp {timestamp_str}: {e}")
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
         
         # Store transcript chunk
         chunk = TranscriptChunk(

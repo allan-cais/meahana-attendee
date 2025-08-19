@@ -1,307 +1,154 @@
 import httpx
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.models import Meeting, MeetingStatus
-from app.schemas.schemas import MeetingCreate
 from app.core.config import settings
-from app.services.ngrok_service import ngrok_service
-from typing import Optional
-from datetime import datetime
-import logging
-import asyncio
-import socket
-import json
-from app.services.webhook_service import WebhookService
+from app.models.models import Meeting
+from app.schemas.schemas import MeetingCreate, BotCreateResponse, StatusPollResponse
+from app.models.enums import MeetingStatus
 
 logger = logging.getLogger(__name__)
 
 
 class BotService:
-    @staticmethod
-    async def insert_pending_meeting(db: AsyncSession, meeting_data: MeetingCreate) -> Meeting:
-        """Insert a new meeting with pending status"""
-        meeting = Meeting(
-            meeting_url=meeting_data.meeting_url,
-            status=MeetingStatus.PENDING,
-            meeting_metadata={
-                "bot_name": meeting_data.bot_name,
-                "join_at": meeting_data.join_at.isoformat() if meeting_data.join_at else None,
-            }
+    def __init__(self):
+        self.api_key = settings.attendee_api_key
+        self.base_url = settings.attendee_api_base_url
+        self.client = httpx.AsyncClient(
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            },
+            timeout=30.0
         )
-        
-        db.add(meeting)
-        await db.commit()
-        await db.refresh(meeting)
-        
-        # Debug logging
-        logger.info(f"Meeting created with id: {meeting.id}")
-        logger.info(f"Meeting created_at: {meeting.created_at}")
-        logger.info(f"Meeting updated_at: {meeting.updated_at}")
-        
-        # Verify the object has the required attributes
-        if not hasattr(meeting, 'id') or meeting.id is None:
-            raise ValueError("Meeting ID not generated after commit")
-        if not hasattr(meeting, 'created_at') or meeting.created_at is None:
-            raise ValueError("Meeting created_at not generated after commit")
-        if not hasattr(meeting, 'updated_at') or meeting.updated_at is None:
-            raise ValueError("Meeting updated_at not generated after commit")
-        
-        return meeting
-
-    @staticmethod
-    async def call_attendee_api(
-        meeting_url: str, 
-        bot_name: str, 
-        join_at: Optional[datetime] = None
-    ) -> str:
-        """Call the Attendee API to create a bot and return bot_id"""
-        max_retries = 3
-        base_delay = 2
-        
-        for attempt in range(max_retries):
-            try:
-                # Test DNS resolution first and get IP address
-                try:
-                    ip = socket.gethostbyname("app.attendee.dev")
-                    logger.info(f"DNS resolution successful: app.attendee.dev -> {ip}")
-                    
-                    # Use IP address directly with Host header
-                    api_url = f"https://{ip}/api/v1/bots"
-                    host_header = "app.attendee.dev"
-                    
-                except Exception as dns_error:
-                    logger.error(f"DNS resolution failed on attempt {attempt + 1}: {dns_error}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(base_delay * (2 ** attempt))
-                        continue
-                    else:
-                        raise
-                
-                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-                    payload = {
-                        "meeting_url": meeting_url,
-                        "bot_name": bot_name,
-                        "recording_settings": {
-                            "transcript": True,
-                            "video": True,
-                            "audio": True
-                        }
-                    }
-                    
-                    # Add webhook configuration based on environment
-                    webhook_url = WebhookService.get_webhook_url()
-                    if webhook_url:
-                        payload["webhooks"] = [
-                            {
-                                "url": webhook_url,
-                                "triggers": [
-                                    "bot.state_change",
-                                    "transcript.update",
-                                    "chat_messages.update",
-                                    "participant_events.join_leave"
-                                ]
-                            }
-                        ]
-                        logger.info(f"✅ Adding webhook configuration per Attendee API spec: {webhook_url}")
-                        logger.info(f"📋 Webhook triggers: {payload['webhooks'][0]['triggers']}")
-                        logger.info(f"🎯 This will notify us of: bot state changes, transcript updates, chat messages, and participant events")
-                    else:
-                        logger.warning("❌ No webhook URL available - webhooks will not be received")
-                    
-                    if join_at:
-                        payload["join_at"] = join_at.isoformat()
-                    
-                    # Log the complete payload being sent
-                    logger.info(f"📤 Sending payload to Attendee API: {json.dumps(payload, indent=2)}")
-                    
-                    headers = {
-                        "Authorization": f"Token {settings.attendee_api_key}",
-                        "Content-Type": "application/json",
-                        "Host": host_header,
-                    }
-                    
-                    logger.info(f"🔗 Attempting to call Attendee API at {api_url} (attempt {attempt + 1})")
-                    
-                    response = await client.post(
-                        api_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=30.0
-                    )
-                    try:
-                        response.raise_for_status()
-                    except httpx.HTTPStatusError as e:
-                        logger.error(f"Error response from Attendee API: {response.text}")
-                        raise
-                    data = response.json()
-                    logger.info(f"📥 Received response from Attendee API: {json.dumps(data, indent=2)}")
-                    
-                    bot_id = data.get("bot_id") or data.get("id")
-                    
-                    if not bot_id:
-                        raise ValueError("Bot ID not found in response")
-                    
-                    logger.info(f"🤖 Successfully created bot with ID: {bot_id}")
-                    
-                    # Log webhook URL confirmation
-                    if webhook_url:
-                        logger.info(f"✅ Bot created with bot-level webhook URL: {webhook_url}")
-                        logger.info(f"📬 Attendee will send webhook events to: {webhook_url}")
-                        logger.info(f"🎯 Expected webhook events: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave")
-                    
-                    return bot_id
-                    
-            except (httpx.HTTPError, socket.gaierror) as e:
-                logger.error(f"HTTP/DNS error calling Attendee API (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.info(f"Retrying in {delay} seconds...")
-                    await asyncio.sleep(delay)
-                else:
-                    raise
-            except Exception as e:
-                logger.error(f"Unexpected error calling Attendee API (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.info(f"Retrying in {delay} seconds...")
-                    await asyncio.sleep(delay)
-                else:
-                    raise
-
-    @staticmethod
-    async def update_meeting_with_bot_id(
-        db: AsyncSession, 
-        meeting: Meeting, 
-        bot_id: str
-    ) -> Meeting:
-        """Update meeting with bot_id and change status to started"""
-        meeting.bot_id = bot_id
-        meeting.status = MeetingStatus.STARTED
-        meeting.meeting_metadata = {**meeting.meeting_metadata, "bot_id": bot_id}
-        
-        await db.commit()
-        await db.refresh(meeting)
-        return meeting
-
-    @staticmethod
-    async def get_meeting_by_bot_id(db: AsyncSession, bot_id: str) -> Optional[Meeting]:
-        """Get meeting by bot_id"""
-        result = await db.execute(
-            select(Meeting).where(Meeting.bot_id == bot_id)
-        )
-        return result.scalar_one_or_none()
-
-    @staticmethod
-    async def update_meeting_status(
-        db: AsyncSession, 
-        meeting: Meeting, 
-        status: str
-    ) -> Meeting:
-        """Update meeting status"""
-        meeting.status = status
-        await db.commit()
-        await db.refresh(meeting)
-        return meeting
-
-    @staticmethod
-    async def poll_bot_status(db: AsyncSession, bot_id: str) -> dict:
-        """Poll the Attendee API for bot status updates"""
+    
+    async def create_bot(self, meeting: MeetingCreate, db: AsyncSession) -> BotCreateResponse:
+        """Create a new meeting bot"""
         try:
-            # Test DNS resolution first and get IP address
-            try:
-                ip = socket.gethostbyname("app.attendee.dev")
-                logger.info(f"DNS resolution successful: app.attendee.dev -> {ip}")
-                
-                # Use IP address directly with Host header
-                api_url = f"https://{ip}/api/v1/bots/{bot_id}"
-                host_header = "app.attendee.dev"
-                
-            except Exception as dns_error:
-                logger.error(f"DNS resolution failed: {dns_error}")
-                raise
-            
-            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-                headers = {
-                    "Authorization": f"Token {settings.attendee_api_key}",
-                    "Content-Type": "application/json",
-                    "Host": host_header,
+            # Create meeting record in pending status
+            db_meeting = Meeting(
+                meeting_url=str(meeting.meeting_url),
+                status=MeetingStatus.PENDING,
+                meeting_metadata={
+                    "bot_name": meeting.bot_name,
+                    "join_at": meeting.join_at.isoformat() if meeting.join_at else None
                 }
-                
-                logger.info(f"🔍 Polling bot status from Attendee API: {api_url}")
-                
-                response = await client.get(
-                    api_url,
-                    headers=headers,
-                    timeout=30.0
-                )
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                logger.info(f"📥 Received bot status from Attendee API: {json.dumps(data, indent=2)}")
-                
-                return data
-                
+            )
+            
+            db.add(db_meeting)
+            await db.commit()
+            await db.refresh(db_meeting)
+            
+            # Call Attendee API to create bot
+            bot_data = await self._create_attendee_bot(meeting)
+            
+            # Update meeting with bot_id and status
+            db_meeting.bot_id = bot_data["id"]
+            db_meeting.status = MeetingStatus.STARTED
+            await db.commit()
+            await db.refresh(db_meeting)
+            
+            return BotCreateResponse(
+                id=db_meeting.id,
+                meeting_url=db_meeting.meeting_url,
+                bot_id=db_meeting.bot_id,
+                status=db_meeting.status.value,
+                meeting_metadata=db_meeting.meeting_metadata,
+                created_at=db_meeting.created_at,
+                updated_at=db_meeting.updated_at
+            )
+            
         except Exception as e:
-            logger.error(f"Error polling bot status for {bot_id}: {e}")
+            logger.error(f"Failed to create bot: {e}")
             raise
-
-    @staticmethod
-    async def add_webhook_to_existing_bot(db: AsyncSession, bot_id: str) -> dict:
-        """Add webhook configuration to an existing bot"""
+    
+    async def poll_bot_status(self, bot_id: int, db: AsyncSession) -> StatusPollResponse:
+        """Poll for bot status updates"""
         try:
-            # Test DNS resolution first and get IP address
-            try:
-                ip = socket.gethostbyname("app.attendee.dev")
-                logger.info(f"DNS resolution successful: app.attendee.dev -> {ip}")
-                
-                # Use IP address directly with Host header
-                api_url = f"https://{ip}/api/v1/bots/{bot_id}/webhooks"
-                host_header = "app.attendee.dev"
-                
-            except Exception as dns_error:
-                logger.error(f"DNS resolution failed: {dns_error}")
-                raise
+            # Get meeting
+            result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
+            meeting = result.scalar_one_or_none()
             
-            # Get webhook URL
-            webhook_url = WebhookService.get_webhook_url()
-            if not webhook_url:
-                raise ValueError("No webhook URL available")
-            
-            webhook_payload = {
-                "url": webhook_url,
-                "triggers": [
-                    "bot.state_change",
-                    "transcript.update",
-                    "chat_messages.update",
-                    "participant_events.join_leave"
-                ]
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-                headers = {
-                    "Authorization": f"Token {settings.attendee_api_key}",
-                    "Content-Type": "application/json",
-                    "Host": host_header,
-                }
-                
-                logger.info(f"🔗 Adding webhook to existing bot {bot_id}: {api_url}")
-                logger.info(f"📋 Webhook payload: {json.dumps(webhook_payload, indent=2)}")
-                
-                response = await client.post(
-                    api_url,
-                    json=webhook_payload,
-                    headers=headers,
-                    timeout=30.0
+            if not meeting or not meeting.bot_id:
+                return StatusPollResponse(
+                    status_updated=False,
+                    message="Meeting or bot_id not found"
                 )
+            
+            # Poll Attendee API
+            status_data = await self._get_bot_status(meeting.bot_id)
+            
+            # Map status
+            attendee_state = status_data.get("state", "unknown")
+            new_status = self._map_attendee_status(attendee_state, status_data)
+            
+            # Check if status changed
+            status_updated = new_status != meeting.status
+            
+            if status_updated:
+                # Update meeting status
+                meeting.status = new_status
+                await db.commit()
                 
-                response.raise_for_status()
-                data = response.json()
-                
-                logger.info(f"✅ Successfully added webhook to bot {bot_id}: {json.dumps(data, indent=2)}")
-                
-                return data
-                
+                return StatusPollResponse(
+                    status_updated=True,
+                    new_status=new_status.value,
+                    message=f"Status updated from {meeting.status} to {new_status.value}"
+                )
+            
+            return StatusPollResponse(
+                status_updated=False,
+                message="No status change"
+            )
+            
         except Exception as e:
-            logger.error(f"Error adding webhook to bot {bot_id}: {e}")
-            raise 
+            logger.error(f"Failed to poll bot status: {e}")
+            raise
+    
+    async def _create_attendee_bot(self, meeting: MeetingCreate) -> dict:
+        """Create bot via Attendee API"""
+        payload = {
+            "meeting_url": str(meeting.meeting_url),
+            "bot_name": meeting.bot_name
+        }
+        
+        if meeting.join_at:
+            payload["join_at"] = meeting.join_at.isoformat()
+        
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/bots",
+            json=payload
+        )
+        response.raise_for_status()
+        
+        return response.json()
+    
+    async def _get_bot_status(self, attendee_bot_id: str) -> dict:
+        """Get bot status from Attendee API"""
+        response = await self.client.get(
+            f"{self.base_url}/api/v1/bots/{attendee_bot_id}"
+        )
+        response.raise_for_status()
+        
+        return response.json()
+    
+    def _map_attendee_status(self, attendee_state: str, status_data: dict) -> MeetingStatus:
+        """Map Attendee API state to our MeetingStatus enum"""
+        if attendee_state == "ended":
+            if (status_data.get("transcription_state") == "complete" and 
+                status_data.get("recording_state") == "complete"):
+                return MeetingStatus.COMPLETED
+            else:
+                return MeetingStatus.FAILED
+        elif attendee_state == "started":
+            return MeetingStatus.STARTED
+        elif attendee_state == "pending":
+            return MeetingStatus.PENDING
+        else:
+            return MeetingStatus.FAILED
+    
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.client.aclose() 

@@ -1,11 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import bots, webhooks, reports, ngrok
-from app.services.ngrok_service import ngrok_service
-from app.models import Meeting, TranscriptChunk, Report  # Import models to register with SQLAlchemy
+from app.routers import bots, reports
 import logging
-import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -18,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title=settings.app_name,
-    description="Meeting Bot Service API with ngrok integration",
+    description="Meahana Attendee Integration API",
     version="1.0.0",
     debug=settings.debug,
 )
@@ -33,101 +30,25 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(bots.router)
-app.include_router(webhooks.router, include_in_schema=False)  # Hide from Swagger
-app.include_router(reports.router)
-app.include_router(ngrok.router, include_in_schema=False)  # Hide from Swagger
+app.include_router(bots.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/meeting")
 
 
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler"""
-    logger.info("Starting Meeting Bot Service...")
-    
-    # Handle production environment
-    if settings.is_production:
-        logger.info("Running in production environment")
-        if settings.production_base_url:
-            logger.info(f"Production base URL: {settings.production_base_url}")
-            # Set the production URL as external ngrok URL for webhook handling
-            ngrok_service.set_external_url(settings.production_base_url)
-            logger.info(f"Webhook URL: {ngrok_service.get_webhook_url()}")
-        else:
-            logger.warning("No production base URL configured - webhooks may not work properly")
-        return
-    
-    # Development environment - handle ngrok
-    logger.info("Running in development environment")
-    
-    # Check if external ngrok URL is configured in settings
-    if settings.ngrok_external_url:
-        logger.info(f"External ngrok URL configured: {settings.ngrok_external_url}")
-        ngrok_service.set_external_url(settings.ngrok_external_url)
-        logger.info(f"Webhook URL: {ngrok_service.get_webhook_url()}")
-        return
-    
-    # Try to detect external ngrok tunnel first
-    ngrok_service.refresh_external_detection()
-    
-    # Auto-start ngrok tunnel if enabled and no external tunnel found
-    if getattr(settings, 'auto_start_ngrok', True) and not ngrok_service.external_url:
-        try:
-            logger.info("Auto-starting ngrok tunnel...")
-            public_url = ngrok_service.start_tunnel(port=8000)
-            logger.info(f"Ngrok tunnel started: {public_url}")
-            logger.info(f"Webhook URL: {ngrok_service.get_webhook_url()}")
-        except Exception as e:
-            logger.error(f"Failed to auto-start ngrok: {e}")
-            logger.warning("Continuing without internal ngrok - checking for external tunnel...")
-            
-            # Try one more time to detect external tunnel
-            ngrok_service.refresh_external_detection()
-            if ngrok_service.external_url:
-                logger.info(f"Found external ngrok tunnel: {ngrok_service.external_url}")
-            else:
-                logger.warning("No ngrok tunnel found - webhooks will not be received")
-    elif ngrok_service.external_url:
-        logger.info(f"Using external ngrok tunnel: {ngrok_service.external_url}")
-        logger.info(f"Webhook URL: {ngrok_service.get_webhook_url()}")
-    else:
-        logger.info("Auto-start ngrok disabled - use /ngrok/set-external-url or /ngrok/start to configure")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown event handler"""
-    logger.info("Shutting down Meeting Bot Service...")
-    
-    # Stop ngrok tunnel (only if we manage it)
-    try:
-        if not ngrok_service.external_url:
-            ngrok_service.stop_tunnel()
-            logger.info("Ngrok tunnel stopped")
-        else:
-            logger.info("External ngrok tunnel left running")
-    except Exception as e:
-        logger.error(f"Error stopping ngrok tunnel: {e}")
+    logger.info(f"Starting {settings.app_name}...")
+    logger.info(f"Environment: {settings.environment}")
 
 
 @app.get("/")
 async def root():
     """Root endpoint"""
-    if settings.is_production:
-        return {
-            "message": "Meeting Bot Service API",
-            "version": "1.0.0",
-            "environment": "production",
-            "base_url": settings.base_url,
-            "webhook_url": ngrok_service.get_webhook_url()
-        }
-    else:
-        ngrok_info = ngrok_service.get_tunnel_info()
-        return {
-            "message": "Meeting Bot Service API",
-            "version": "1.0.0",
-            "environment": "development",
-            "ngrok": ngrok_info
-        }
+    return {
+        "message": settings.app_name,
+        "version": "1.0.0",
+        "environment": settings.environment
+    }
 
 
 @app.get("/health")

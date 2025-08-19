@@ -1,6 +1,6 @@
-# Meeting Bot Dashboard
+# Meahana Attendee
 
-A full-stack application for managing meeting bots with real-time transcription and AI-powered reporting.
+A clean, minimal integration for managing meeting bots with real-time transcription and AI-powered reporting.
 
 ## 🏗️ Architecture
 
@@ -8,7 +8,6 @@ A full-stack application for managing meeting bots with real-time transcription 
 - **Backend**: FastAPI + Python + PostgreSQL + Redis
 - **Database**: PostgreSQL with Alembic migrations
 - **Cache**: Redis for session management
-- **Real-time**: WebSocket support for live updates
 
 ## 🚀 Quick Start
 
@@ -17,22 +16,21 @@ A full-stack application for managing meeting bots with real-time transcription 
 - Node.js 18+ and npm
 - Python 3.8+
 - Docker and Docker Compose
-- PostgreSQL and Redis (or use Docker)
 
 ### Option 1: Full-Stack with Docker (Recommended)
 
 ```bash
 # Clone the repository
-git clone https://github.com/customaistudio/meahana-attendee.git
+git clone <repository-url>
 cd meahana-attendee
 
 # Copy environment template
-cp env.example .env
+cp .env.example .env
 
 # Edit .env with your API keys
 nano .env
 
-# Start all services (frontend + backend + database + redis)
+# Start all services
 docker-compose up --build
 ```
 
@@ -42,7 +40,7 @@ This will start:
 - PostgreSQL on localhost:5432
 - Redis on localhost:6379
 
-### Option 2: Development Mode (Frontend + Backend)
+### Option 2: Development Mode
 
 ```bash
 # Install frontend dependencies
@@ -53,13 +51,6 @@ npm run backend:install
 
 # Start both frontend and backend
 npm run dev
-```
-
-### Option 3: Backend Only with Docker
-
-```bash
-# Start only backend services (backend + database + redis)
-npm run backend:docker
 ```
 
 ## 🔧 Development
@@ -82,9 +73,6 @@ npm run backend
 
 # Run with Docker
 npm run backend:docker
-
-# Install Python dependencies
-npm run backend:install
 ```
 
 ### Database Management
@@ -102,54 +90,42 @@ cd backend && alembic revision --autogenerate -m "description"
 
 ## 🌐 API Endpoints
 
-The backend provides the following API endpoints:
-
 - `POST /api/v1/bots/` - Create a new meeting bot
-- `GET /meeting/{id}/report` - Get meeting report
-- `GET /meeting/{id}/transcripts` - Get meeting transcripts
-- `GET /docs` - Interactive API documentation (Swagger UI)
+- `GET /api/v1/bots/` - Get all bots
+- `GET /api/v1/bots/{id}` - Get specific bot
+- `DELETE /api/v1/bots/{id}` - Delete bot
+- `POST /api/v1/bots/{id}/poll-status` - Poll bot status
+- `GET /meeting/{id}/scorecard` - Get meeting scorecard
+- `POST /meeting/{id}/trigger-analysis` - Trigger analysis
 
 ## 🔑 Environment Variables
 
-Copy `env.example` to `.env` and configure:
+Create a `.env` file in the root directory:
 
 ```bash
-# Frontend
-REACT_APP_API_URL=http://localhost:8000
-
 # Backend
 ATTENDEE_API_KEY=your_key_here
-OPENAI_API_KEY=your_key_here
-WEBHOOK_SECRET=your_secret_here
-NGROK_AUTH_TOKEN=your_ngrok_token_here
+ATTENDEE_API_BASE_URL=https://app.attendee.dev
+ENVIRONMENT=development
+
+# Frontend
+REACT_APP_API_URL=http://localhost:8000
 ```
 
 ## 🐳 Docker Commands
 
 ```bash
-# Start all services (frontend + backend + database + redis)
+# Start all services
 docker-compose up --build
 
 # Start in background
 docker-compose up -d
-
-# Start only backend services (backend + database + redis)
-docker-compose up --build backend db redis
 
 # Stop all services
 docker-compose down
 
 # View logs
 docker-compose logs -f
-
-# View specific service logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
-docker-compose logs -f db
-docker-compose logs -f redis
-
-# Rebuild specific service
-docker-compose up --build backend
 ```
 
 ## 📁 Project Structure
@@ -169,54 +145,25 @@ meahana-attendee/
 │   ├── alembic/          # Database migrations
 │   └── requirements.txt   # Python dependencies
 ├── docker-compose.yml     # Full-stack orchestration
-├── Dockerfile.frontend    # Frontend container
 └── package.json          # Node.js dependencies
 ```
 
-## 📊 Monitoring
+## 📊 Features
 
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
-- **Database**: localhost:5432 (user: user, password: password)
-- **Redis**: localhost:6379
+- **Bot Management**: Create, monitor, and delete meeting bots
+- **Real-time Status**: Live updates on bot status and meeting progress
+- **AI Analysis**: Automated meeting insights and scorecards
+- **Clean UI**: Modern, responsive interface built with Tailwind CSS
+- **Type Safety**: Full TypeScript support for both frontend and backend
 
 ## 🚀 Production Deployment
 
-### Build All Services
-
 ```bash
-npm run build:all
-```
+# Build all services
+npm run build
 
-### Deploy with Docker
-
-```bash
-# Build and push images
+# Deploy with Docker
 docker-compose -f docker-compose.prod.yml up --build
-
-# Or deploy to cloud platform
-docker-compose -f docker-compose.prod.yml push
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Port conflicts**: Ensure ports 3000, 8000, 5432, and 6379 are available
-2. **Database connection**: Wait for PostgreSQL to be ready (10-15 seconds)
-3. **API errors**: Check backend logs with `docker-compose logs backend`
-4. **Frontend not loading**: Verify backend is running on port 8000
-
-### Logs
-
-```bash
-# View all logs
-docker-compose logs -f
-
-# View specific service logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
 ```
 
 ## 🤝 Contributing

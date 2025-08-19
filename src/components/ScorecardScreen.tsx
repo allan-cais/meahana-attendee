@@ -1,12 +1,12 @@
 import React from 'react';
-import { BarChart3, RefreshCw, Settings, CheckCircle, AlertCircle, TrendingUp, Calendar, Users, Link } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, Calendar, RefreshCw, Zap } from 'lucide-react';
 import { ScorecardResponse, MeetingConfig } from '../types';
 
 interface ScorecardScreenProps {
-  scorecardData: ScorecardResponse | null;
-  config?: MeetingConfig;
+  scorecardData: ScorecardResponse;
+  config: MeetingConfig;
   onRefresh: () => void;
-  onTriggerAnalysis?: () => void;
+  onTriggerAnalysis: () => void;
   loading: boolean;
   error: string | null;
 }
@@ -19,324 +19,222 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
   loading,
   error
 }) => {
-  const getSentimentColor = (sentiment: string) => {
-    switch (sentiment.toLowerCase()) {
-      case 'positive':
-        return 'text-green-600 bg-green-100';
-      case 'negative':
-        return 'text-red-600 bg-red-100';
-      case 'neutral':
-        return 'text-gray-600 bg-gray-100';
-      default:
-        return 'text-blue-600 bg-blue-100';
-    }
-  };
+  if (!scorecardData?.scorecard) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+          <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-600 mb-2">Scorecard Not Available</h2>
+          <p className="text-gray-500 mb-4">{scorecardData?.message || 'No scorecard data available'}</p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              onClick={onTriggerAnalysis}
+              disabled={loading}
+              className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+            >
+              <Zap className="w-4 h-4" />
+              {loading ? 'Processing...' : 'Generate Analysis'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const getEngagementColor = (score: number) => {
-    if (score >= 8) return 'text-green-600';
-    if (score >= 6) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const { scorecard } = scorecardData;
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
-      <div className="bg-white rounded-lg p-8 shadow-lg border border-gray-200">
-        {/* Header with Meeting Info */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <BarChart3 className="w-6 h-6 text-primary-600" />
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Meeting Scorecard</h1>
+            <p className="text-gray-600">{config.bot_name} • {config.meeting_url}</p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              onClick={onTriggerAnalysis}
+              disabled={loading}
+              className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
+            >
+              <Zap className="w-4 h-4" />
+              {loading ? 'Processing...' : 'Re-analyze'}
+            </button>
+          </div>
+        </div>
+        
+        {/* Overall Score */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-black">Meeting Report</h2>
-              {scorecardData && (
-                <p className="text-sm text-gray-500">
-                  Meeting ID: {scorecardData.meeting_id} • 
-                  Status: <span className="font-medium text-green-600">{scorecardData.status}</span>
-                </p>
-              )}
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Overall Score</h2>
+              <p className="text-gray-600">Meeting effectiveness and engagement</p>
+            </div>
+            <div className="text-right">
+              <div className="text-4xl font-bold text-blue-600">{scorecard.overall_score}/10</div>
+              <div className="text-sm text-gray-600">out of 10</div>
             </div>
           </div>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+        </div>
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Engagement Score */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">Engagement</h3>
+              <p className="text-sm text-gray-600">Participant involvement</p>
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-green-600">{scorecard.engagement_score}/10</div>
         </div>
 
-        {/* Configuration Card */}
-        {config && (
-          <div className="bg-gray-50 rounded-lg p-6 mb-6 border border-gray-200">
-            <div className="flex items-center gap-3 mb-4">
-              <Settings className="w-5 h-5 text-primary-600" />
-              <h3 className="text-lg font-semibold text-black">Bot Configuration</h3>
+        {/* Meeting Effectiveness */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-center gap-2">
-                <Link className="w-4 h-4 text-gray-400" />
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Meeting URL</label>
-                  <p className="text-sm text-black break-all">{config.meeting_url}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-gray-400" />
-                <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Bot Name</label>
-                  <p className="text-sm text-black">{config.bot_name}</p>
-                </div>
-              </div>
-              {config.join_at && (
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Join Time</label>
-                    <p className="text-sm text-black">{formatDate(config.join_at)}</p>
-                  </div>
-                </div>
-              )}
+            <div>
+              <h3 className="font-semibold text-gray-900">Effectiveness</h3>
+              <p className="text-sm text-gray-600">Goal achievement</p>
             </div>
           </div>
-        )}
+          <div className="text-3xl font-bold text-blue-600">{scorecard.meeting_effectiveness}/10</div>
+        </div>
 
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="w-8 h-8 text-primary-600 animate-spin" />
-            <span className="ml-3 text-gray-600">Updating scorecard...</span>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="w-5 h-5 text-red-600" />
-              <h3 className="font-medium text-red-800">Error Loading Scorecard</h3>
+        {/* Sentiment */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+              <Users className="w-5 h-5 text-purple-600" />
             </div>
-            <p className="text-red-700">{error}</p>
+            <div>
+              <h3 className="font-semibold text-gray-900">Sentiment</h3>
+              <p className="text-sm text-gray-600">Overall mood</p>
+            </div>
           </div>
-        )}
-
-        {scorecardData && !loading && (
-          <div className="space-y-6">
-            {/* Status Message */}
-            {scorecardData.message && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-600" />
-                  <p className="text-blue-700 text-sm">{scorecardData.message}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Scorecard */}
-            {scorecardData.scorecard && (
-              <div className="space-y-6">
-                {/* Scorecard Header */}
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-black">AI-Generated Scorecard</h3>
-                  <div className="text-right">
-                    <span className="text-sm text-gray-500">Generated on</span>
-                    <p className="text-sm font-medium text-gray-700">
-                      {scorecardData.created_at ? formatDate(scorecardData.created_at) : 'Unknown'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Scores Card - Full Width */}
-                <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                  <h4 className="font-medium text-black mb-4">Meeting Metrics</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Overall Score */}
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <TrendingUp className="w-5 h-5 text-primary-600" />
-                        <h5 className="font-medium text-black">Overall Score</h5>
-                      </div>
-                      <div className={`text-4xl font-bold ${getEngagementColor(scorecardData.scorecard.overall_score * 10)}`}>
-                        {(scorecardData.scorecard.overall_score * 100).toFixed(0)}%
-                      </div>
-                    </div>
-
-                    {/* Engagement Score */}
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <TrendingUp className="w-5 h-5 text-primary-600" />
-                        <h5 className="font-medium text-black">Engagement</h5>
-                      </div>
-                      <div className={`text-4xl font-bold ${getEngagementColor(scorecardData.scorecard.engagement_score * 10)}`}>
-                        {(scorecardData.scorecard.engagement_score * 100).toFixed(0)}%
-                      </div>
-                    </div>
-
-                    {/* Meeting Effectiveness */}
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <TrendingUp className="w-5 h-5 text-primary-600" />
-                        <h5 className="font-medium text-black">Effectiveness</h5>
-                      </div>
-                      <div className={`text-4xl font-bold ${getEngagementColor(scorecardData.scorecard.meeting_effectiveness * 10)}`}>
-                        {(scorecardData.scorecard.meeting_effectiveness * 100).toFixed(0)}%
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Grid Layout for Other Sections */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 auto-rows-fr">
-                  {/* Meeting Context Card */}
-                  <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                    <h4 className="font-medium text-black mb-4">Meeting Context</h4>
-                    
-                    {/* Sentiment */}
-                    <div className="mb-4">
-                      <h5 className="font-medium text-black mb-2">Sentiment</h5>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getSentimentColor(scorecardData.scorecard.sentiment)}`}>
-                        {scorecardData.scorecard.sentiment}
-                      </span>
-                    </div>
-
-                    {/* Participants */}
-                    {scorecardData.scorecard.participants && scorecardData.scorecard.participants.length > 0 && (
-                      <div>
-                        <h5 className="font-medium text-black mb-2">Participants</h5>
-                        <div className="flex flex-wrap gap-2">
-                          {scorecardData.scorecard.participants.map((participant, idx) => (
-                            <span key={idx} className="px-3 py-1 bg-primary-100 text-primary-800 rounded-full text-sm flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {participant}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Key Insights Card */}
-                  {scorecardData.scorecard.insights && scorecardData.scorecard.insights.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                      <h4 className="font-medium text-black mb-4">Key Insights</h4>
-                      <ul className="space-y-3">
-                        {scorecardData.scorecard.insights.map((insight, idx) => (
-                          <li key={idx} className="flex items-start gap-3">
-                            <CheckCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-700">{insight}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Meeting Summary Card */}
-                  <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                    <h4 className="font-medium text-black mb-4">Meeting Summary</h4>
-                    <p className="text-gray-700 leading-relaxed">{scorecardData.scorecard.summary}</p>
-                  </div>
-
-                  {/* Action Items Card */}
-                  {scorecardData.scorecard.action_items && scorecardData.scorecard.action_items.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                      <h4 className="font-medium text-black mb-4">Action Items</h4>
-                      <ul className="space-y-3">
-                        {scorecardData.scorecard.action_items.map((item, idx) => (
-                          <li key={idx} className="flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-700">{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Key Topics Card */}
-                  {scorecardData.scorecard.key_topics && scorecardData.scorecard.key_topics.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                      <h4 className="font-medium text-black mb-4">Key Topics</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {scorecardData.scorecard.key_topics.map((topic, idx) => (
-                          <span key={idx} className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">
-                            {topic}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Recommendations Card */}
-                  {scorecardData.scorecard.recommendations && scorecardData.scorecard.recommendations.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                      <h4 className="font-medium text-black mb-4">Recommendations</h4>
-                      <ul className="space-y-3">
-                        {scorecardData.scorecard.recommendations.map((recommendation, idx) => (
-                          <li key={idx} className="flex items-start gap-3">
-                            <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                            <span className="text-gray-700">{recommendation}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* No Scorecard Available */}
-            {scorecardData && !scorecardData.scorecard && (
-              <div className="text-center py-12">
-                <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                {scorecardData.status === 'processing_needed' ? (
-                  <>
-                    <p className="text-gray-600">Analysis needed to generate scorecard.</p>
-                    <p className="text-sm text-gray-500">The meeting has completed with transcript data, but AI analysis is required to create the scorecard.</p>
-                    <button
-                      onClick={onTriggerAnalysis || onRefresh}
-                      className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Trigger Analysis
-                    </button>
-                  </>
-                ) : scorecardData.status === 'no_data' ? (
-                  <>
-                    <p className="text-gray-600">No transcript data available.</p>
-                    <p className="text-sm text-gray-500">The meeting completed but no transcript data was captured. Cannot generate scorecard.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-gray-600">No scorecard available yet.</p>
-                    <p className="text-sm text-gray-500">Scorecards are generated after the meeting is completed and transcript data is available.</p>
-                    <button
-                      onClick={onRefresh}
-                      className="mt-4 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2 mx-auto"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Check for Scorecard
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {!scorecardData && !loading && !error && (
-          <div className="text-center py-12">
-            <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">No scorecard data available. Click refresh to fetch data.</p>
-          </div>
-        )}
+          <div className="text-lg font-semibold text-purple-600 capitalize">{scorecard.sentiment}</div>
+        </div>
       </div>
+
+      {/* Content Sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Summary */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Summary</h3>
+          <p className="text-gray-700 leading-relaxed">{scorecard.summary}</p>
+        </div>
+
+        {/* Participants */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Participants</h3>
+          <div className="space-y-2">
+            {scorecard.participants.map((participant, index) => (
+              <div key={index} className="flex items-center gap-2 text-gray-700">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                {participant}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Lists Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Key Topics */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Key Topics</h3>
+          <div className="space-y-2">
+            {scorecard.key_topics.map((topic, index) => (
+              <div key={index} className="bg-gray-50 px-3 py-2 rounded-lg text-gray-700 text-sm">
+                {topic}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Action Items */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Action Items</h3>
+          <div className="space-y-2">
+            {scorecard.action_items.map((item, index) => (
+              <div key={index} className="flex items-start gap-2 text-gray-700">
+                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
+                <span className="text-sm">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Insights */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Insights</h3>
+          <div className="space-y-2">
+            {scorecard.insights.map((insight, index) => (
+              <div key={index} className="flex items-start gap-2 text-gray-700">
+                <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
+                <span className="text-sm">{insight}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recommendations */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommendations</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {scorecard.recommendations.map((recommendation, index) => (
+            <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-600 text-sm font-medium">{index + 1}</span>
+                </div>
+                <p className="text-gray-700 text-sm">{recommendation}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

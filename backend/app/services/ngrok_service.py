@@ -7,6 +7,7 @@ from pyngrok.exception import PyngrokNgrokError
 import logging
 import os
 import requests
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class NgrokService:
         """Configure ngrok settings"""
         try:
             # Set ngrok auth token if provided
-            auth_token = os.getenv('NGROK_AUTH_TOKEN')
+            auth_token = settings.ngrok_auth_token
             if auth_token:
                 ngrok.set_auth_token(auth_token)
                 logger.info("Ngrok auth token set")
@@ -111,7 +112,7 @@ class NgrokService:
             }
             
             # Add subdomain if provided and auth token is available
-            if subdomain and os.getenv('NGROK_AUTH_TOKEN'):
+            if subdomain and settings.ngrok_auth_token:
                 options["subdomain"] = subdomain
             
             # Start tunnel
@@ -242,6 +243,41 @@ class NgrokService:
         """Manually refresh external tunnel detection"""
         self._detect_external_tunnel()
         return self.get_tunnel_info()
+    
+    def force_refresh_external_detection(self):
+        """Force refresh external tunnel detection, clearing cached URLs"""
+        logger.info("Force refreshing external tunnel detection...")
+        
+        # Clear cached external URL to force fresh detection
+        old_external_url = self.external_url
+        self.external_url = None
+        self.public_url = None
+        self.webhook_url = None
+        self.is_running = False
+        
+        # Try to detect fresh tunnel
+        self._detect_external_tunnel()
+        
+        if self.external_url:
+            logger.info(f"Fresh external tunnel detected: {self.external_url}")
+            if old_external_url and old_external_url != self.external_url:
+                logger.info(f"Tunnel URL changed: {old_external_url} → {self.external_url}")
+        else:
+            logger.info("No fresh external tunnel detected")
+            # Restore old URL if no new one found
+            if old_external_url:
+                logger.info(f"Restoring previous external URL: {old_external_url}")
+                self.set_external_url(old_external_url)
+        
+        return self.get_tunnel_info()
+    
+    def clear_external_url(self):
+        """Clear the cached external URL to force fresh detection on next access"""
+        logger.info("Clearing cached external ngrok URL")
+        self.external_url = None
+        self.public_url = None
+        self.webhook_url = None
+        self.is_running = False
     
     def __del__(self):
         """Cleanup on destruction"""

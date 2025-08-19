@@ -68,6 +68,26 @@ async def refresh_detection():
         )
 
 
+@router.post("/force-refresh", response_model=NgrokResponse)
+async def force_refresh_detection():
+    """Force refresh external ngrok tunnel detection, clearing cached URLs"""
+    try:
+        tunnel_info = ngrok_service.force_refresh_external_detection()
+        
+        return NgrokResponse(
+            success=True,
+            message="External tunnel detection force refreshed",
+            data=tunnel_info
+        )
+        
+    except Exception as e:
+        logger.error(f"Error force refreshing detection: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to force refresh detection: {str(e)}"
+        )
+
+
 @router.post("/start", response_model=NgrokResponse)
 async def start_ngrok_tunnel(request: NgrokStartRequest):
     """Start ngrok tunnel"""
@@ -149,10 +169,29 @@ async def get_ngrok_status():
     try:
         tunnel_info = ngrok_service.get_tunnel_info()
         
+        # Add helpful guidance for development
+        guidance = []
+        if tunnel_info.get("external_url"):
+            guidance.append("✅ External ngrok tunnel detected and active")
+            guidance.append(f"🌐 Public URL: {tunnel_info.get('public_url')}")
+            guidance.append(f"🔗 Webhook URL: {tunnel_info.get('webhook_url')}")
+        else:
+            guidance.append("❌ No external ngrok tunnel detected")
+            guidance.append("💡 Start ngrok in another terminal: ngrok http 8000")
+            guidance.append("💡 Or use /ngrok/start to start internal tunnel")
+        
+        if tunnel_info.get("managed_externally"):
+            guidance.append("📋 Tunnel managed externally (not by this service)")
+        else:
+            guidance.append("📋 Tunnel managed by this service")
+        
         return NgrokResponse(
             success=True,
-            message="Ngrok status retrieved successfully",
-            data=tunnel_info
+            message="Ngrok tunnel status retrieved",
+            data={
+                **tunnel_info,
+                "guidance": guidance
+            }
         )
         
     except Exception as e:

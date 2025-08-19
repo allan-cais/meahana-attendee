@@ -150,6 +150,68 @@ async def handle_attendee_webhook(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post("/retry-failed")
+async def retry_failed_webhooks(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retry processing failed webhook events"""
+    try:
+        from sqlalchemy import select, update
+        from app.models.models import WebhookEvent
+        
+        # Find failed webhooks
+        result = await db.execute(
+            select(WebhookEvent).where(
+                WebhookEvent.processed == "false"
+            ).order_by(WebhookEvent.created_at.desc())
+        )
+        failed_webhooks = result.scalars().all()
+        
+        if not failed_webhooks:
+            return {"message": "No failed webhooks to retry", "count": 0}
+        
+        retry_count = 0
+        for webhook in failed_webhooks:
+            try:
+                # Reset status for retry
+                webhook.processed = "false"
+                webhook.delivery_status = "pending"
+                webhook.delivery_error = None
+                await db.commit()
+                
+                # Re-process the webhook
+                from app.services.webhook_service import WebhookService
+                from app.schemas.schemas import WebhookPayload
+                
+                # Reconstruct payload from stored data
+                payload = WebhookPayload(**webhook.raw_payload)
+                
+                # Process in background to avoid blocking
+                background_tasks.add_task(
+                    WebhookService.handle_event,
+                    payload,
+                    db,
+                    background_tasks
+                )
+                
+                retry_count += 1
+                logger.info(f"Retrying webhook {webhook.id}: {webhook.event_type}")
+                
+            except Exception as e:
+                logger.error(f"Error retrying webhook {webhook.id}: {e}")
+                continue
+        
+        return {
+            "message": f"Retry initiated for {retry_count} failed webhooks",
+            "count": retry_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in retry-failed endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retry webhooks: {str(e)}")
+
+
 def verify_attendee_signature(raw_body: bytes, signature_header: str) -> bool:
     """Verify Attendee webhook signature"""
     try:
