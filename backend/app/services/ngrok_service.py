@@ -46,8 +46,10 @@ class NgrokService:
             # Set ngrok auth token if provided
             auth_token = settings.ngrok_auth_token
             if auth_token:
-                ngrok.set_auth_token(auth_token)
-                logger.info("Ngrok auth token set")
+                try:
+                    ngrok.set_auth_token(auth_token)
+                except Exception as auth_error:
+                    logger.warning(f"Failed to set ngrok auth token: {auth_error}")
             else:
                 logger.warning("No NGROK_AUTH_TOKEN found. Using free ngrok (limited features)")
                 
@@ -72,12 +74,10 @@ class NgrokService:
                         self.webhook_url = f"{self.external_url}/webhook/"
                         self.is_running = True
                         
-                        logger.info(f"Detected external ngrok tunnel: {self.external_url}")
-                        logger.info(f"External webhook URL: {self.webhook_url}")
                         return
                         
         except Exception as e:
-            logger.debug(f"Could not detect external ngrok tunnel: {e}")
+            pass  # Could not detect external ngrok tunnel
     
     def set_external_url(self, external_url: str):
         """Manually set external ngrok URL"""
@@ -87,65 +87,71 @@ class NgrokService:
             self.webhook_url = f"{self.external_url}/webhook/"
             self.is_running = True
             
-            logger.info(f"Set external ngrok URL: {self.external_url}")
-            logger.info(f"Webhook URL: {self.webhook_url}")
+            # External ngrok URL set
     
     def start_tunnel(self, port: int = 8000, subdomain: Optional[str] = None) -> str:
         """Start ngrok tunnel"""
-        try:
-            # If external tunnel is already detected, return that
-            if self.external_url:
-                logger.info(f"Using existing external ngrok tunnel: {self.external_url}")
-                return self.external_url
-            
-            if self.is_running and self.tunnel:
-                logger.info("Ngrok tunnel already running")
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                # If external tunnel is already detected, return that
+                if self.external_url:
+                    return self.external_url
+                
+                if self.is_running and self.tunnel:
+                    return self.public_url
+                
+                # Starting ngrok tunnel
+                
+                # Create tunnel options
+                options = {
+                    "addr": port,
+                    "proto": "http",
+                    "bind_tls": True
+                }
+                
+                # Add subdomain if provided and auth token is available
+                if subdomain and settings.ngrok_auth_token:
+                    options["subdomain"] = subdomain
+                
+                # Start tunnel
+                self.tunnel = ngrok.connect(**options)
+                self.public_url = self.tunnel.public_url
+                self.webhook_url = f"{self.public_url}/webhook/"
+                self.is_running = True
+                
+                # Ngrok tunnel started successfully
+                
                 return self.public_url
-            
-            logger.info(f"Starting ngrok tunnel on port {port}")
-            
-            # Create tunnel options
-            options = {
-                "addr": port,
-                "proto": "http",
-                "bind_tls": True
-            }
-            
-            # Add subdomain if provided and auth token is available
-            if subdomain and settings.ngrok_auth_token:
-                options["subdomain"] = subdomain
-            
-            # Start tunnel
-            self.tunnel = ngrok.connect(**options)
-            self.public_url = self.tunnel.public_url
-            self.webhook_url = f"{self.public_url}/webhook/"
-            self.is_running = True
-            
-            logger.info(f"Ngrok tunnel started: {self.public_url}")
-            logger.info(f"Webhook URL: {self.webhook_url}")
-            
-            return self.public_url
-            
-        except PyngrokNgrokError as e:
-            logger.error(f"Ngrok error: {e}")
-            # Try to detect external tunnel as fallback
-            self._detect_external_tunnel()
-            if self.external_url:
-                return self.external_url
-            raise
-        except Exception as e:
-            logger.error(f"Error starting ngrok tunnel: {e}")
-            # Try to detect external tunnel as fallback
-            self._detect_external_tunnel()
-            if self.external_url:
-                return self.external_url
-            raise
+                
+            except PyngrokNgrokError as e:
+                logger.warning(f"Ngrok error on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"Failed to start ngrok tunnel after {max_retries} attempts")
+                    # Try to detect external tunnel as fallback
+                    self._detect_external_tunnel()
+                    if self.external_url:
+                        return self.external_url
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error starting ngrok tunnel: {e}")
+                # Try to detect external tunnel as fallback
+                self._detect_external_tunnel()
+                if self.external_url:
+                    return self.external_url
+                raise
     
     def stop_tunnel(self):
         """Stop ngrok tunnel"""
         try:
             if self.external_url:
-                logger.info("Cannot stop external ngrok tunnel - managed externally")
+                # Cannot stop external ngrok tunnel - managed externally
                 return
                 
             if self.tunnel:
@@ -154,9 +160,9 @@ class NgrokService:
                 self.public_url = None
                 self.webhook_url = None
                 self.is_running = False
-                logger.info("Ngrok tunnel stopped")
+                pass  # Ngrok tunnel stopped
             else:
-                logger.info("No ngrok tunnel to stop")
+                pass  # No ngrok tunnel to stop
                 
         except Exception as e:
             logger.error(f"Error stopping ngrok tunnel: {e}")
@@ -189,10 +195,10 @@ class NgrokService:
     def restart_tunnel(self, port: int = 8000, subdomain: Optional[str] = None) -> str:
         """Restart ngrok tunnel"""
         if self.external_url:
-            logger.info("Cannot restart external ngrok tunnel - managed externally")
+            # Cannot restart external ngrok tunnel - managed externally
             return self.external_url
             
-        logger.info("Restarting ngrok tunnel")
+        # Restarting ngrok tunnel
         self.stop_tunnel()
         time.sleep(1)  # Give ngrok time to clean up
         return self.start_tunnel(port, subdomain)
@@ -246,7 +252,6 @@ class NgrokService:
     
     def force_refresh_external_detection(self):
         """Force refresh external tunnel detection, clearing cached URLs"""
-        logger.info("Force refreshing external tunnel detection...")
         
         # Clear cached external URL to force fresh detection
         old_external_url = self.external_url
@@ -259,21 +264,19 @@ class NgrokService:
         self._detect_external_tunnel()
         
         if self.external_url:
-            logger.info(f"Fresh external tunnel detected: {self.external_url}")
             if old_external_url and old_external_url != self.external_url:
-                logger.info(f"Tunnel URL changed: {old_external_url} → {self.external_url}")
+                # Tunnel URL changed
+                pass
         else:
-            logger.info("No fresh external tunnel detected")
+            # No fresh external tunnel detected
             # Restore old URL if no new one found
             if old_external_url:
-                logger.info(f"Restoring previous external URL: {old_external_url}")
                 self.set_external_url(old_external_url)
         
         return self.get_tunnel_info()
     
     def clear_external_url(self):
         """Clear the cached external URL to force fresh detection on next access"""
-        logger.info("Clearing cached external ngrok URL")
         self.external_url = None
         self.public_url = None
         self.webhook_url = None

@@ -2,6 +2,7 @@ export interface MeetingConfig {
   meeting_url: string;
   bot_name: string;
   join_at?: string;
+  webhook_base_url: string; // Required for webhooks to work
 }
 
 export interface MeetingBot {
@@ -12,6 +13,7 @@ export interface MeetingBot {
   meeting_metadata: {
     bot_name: string;
     join_at?: string;
+    webhook_base_url: string; // Required for webhooks to work
   };
   created_at: string;
   updated_at: string;
@@ -72,6 +74,11 @@ export interface CreateBotRequest {
   meeting_url: string;
   bot_name: string;
   join_at?: string;
+  webhook_base_url: string; // Required for webhooks to work
+  webhooks?: Array<{
+    url: string;
+    triggers: string[];
+  }>;
 }
 
 export interface CreateBotResponse {
@@ -82,6 +89,7 @@ export interface CreateBotResponse {
   meeting_metadata: {
     bot_name: string;
     join_at?: string;
+    webhook_base_url: string; // Required for webhooks to work
   };
   created_at: string;
   updated_at: string;

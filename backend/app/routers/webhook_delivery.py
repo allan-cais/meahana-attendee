@@ -162,11 +162,9 @@ async def configure_webhook_delivery(
     try:
         if max_retry_attempts is not None:
             webhook_delivery_service.max_retry_attempts = max(1, max_retry_attempts)
-            logger.info(f"Max retry attempts set to {webhook_delivery_service.max_retry_attempts}")
         
         if fallback_timeout is not None:
             webhook_delivery_service.fallback_timeout = max(60, fallback_timeout)  # Minimum 1 minute
-            logger.info(f"Fallback timeout set to {webhook_delivery_service.fallback_timeout} seconds")
         
         return WebhookDeliveryResponse(
             success=True,

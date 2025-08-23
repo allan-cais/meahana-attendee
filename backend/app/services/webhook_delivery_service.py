@@ -32,14 +32,13 @@ class WebhookDeliveryService:
         
     async def start_proactive_monitoring(self):
         """Start proactive monitoring for webhook failures on Attendee's end"""
-        logger.info("🚀 Starting proactive webhook failure monitoring")
         
         while True:
             try:
                 await self._proactive_webhook_failure_check()
                 await asyncio.sleep(self.proactive_check_interval)
             except Exception as e:
-                logger.error(f"❌ Error in proactive webhook failure check: {e}")
+                logger.error(f"Error in proactive webhook failure check: {e}")
                 await asyncio.sleep(30)  # Wait 30 seconds before retrying
     
     async def _proactive_webhook_failure_check(self):
@@ -52,10 +51,9 @@ class WebhookDeliveryService:
                 suspicious_meetings = await self._find_suspicious_meetings(db)
                 
                 if not suspicious_meetings:
-                    logger.debug("No suspicious meetings detected")
                     return
                 
-                logger.info(f"🔍 Found {len(suspicious_meetings)} meetings with potential webhook failures")
+                # Found meetings with potential webhook failures
                 
                 for meeting in suspicious_meetings:
                     await self._investigate_meeting_webhook_status(meeting, db)
@@ -110,7 +108,7 @@ class WebhookDeliveryService:
                     missing_events.append(expected_event)
             
             if missing_events:
-                logger.warning(f"⚠️ Meeting {meeting.id} missing expected webhooks: {missing_events}")
+                logger.warning(f"Meeting {meeting.id} missing expected webhooks: {missing_events}")
                 return True
             
             return False
@@ -154,11 +152,9 @@ class WebhookDeliveryService:
     async def _investigate_meeting_webhook_status(self, meeting: Meeting, db: AsyncSession):
         """Investigate a meeting's webhook status and trigger fallback if needed"""
         try:
-            logger.info(f"🔍 Investigating webhook status for meeting {meeting.id}")
-            
             # Check if we should trigger immediate fallback
             if await self._should_trigger_immediate_fallback(meeting, db):
-                logger.warning(f"🚨 Meeting {meeting.id} triggering immediate fallback due to webhook failure")
+                logger.warning(f"Meeting {meeting.id} triggering immediate fallback due to webhook failure")
                 await self._trigger_polling_fallback(meeting, db)
             else:
                 # Schedule a delayed fallback check
@@ -174,14 +170,14 @@ class WebhookDeliveryService:
             very_long_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
             
             if meeting.updated_at < very_long_threshold:
-                logger.warning(f"⚠️ Meeting {meeting.id} stuck for over 30 minutes, immediate fallback")
+                logger.warning(f"Meeting {meeting.id} stuck for over 30 minutes, immediate fallback")
                 return True
             
             # Check if we have no webhooks at all for this meeting
             webhook_count = await self._get_webhook_count_for_meeting(meeting, db)
             
             if webhook_count == 0:
-                logger.warning(f"⚠️ Meeting {meeting.id} has no webhooks at all, immediate fallback")
+                logger.warning(f"Meeting {meeting.id} has no webhooks at all, immediate fallback")
                 return True
             
             return False
@@ -210,7 +206,7 @@ class WebhookDeliveryService:
                 self._delayed_fallback_check(meeting, delay, db)
             )
             
-            logger.info(f"📅 Scheduled delayed fallback check for meeting {meeting.id} in {delay} seconds")
+            # Scheduled delayed fallback check
             
         except Exception as e:
             logger.error(f"Error scheduling delayed fallback for meeting {meeting.id}: {e}")
@@ -223,7 +219,7 @@ class WebhookDeliveryService:
             # Check if the meeting still needs fallback
             current_meeting = await db.get(Meeting, meeting.id)
             if current_meeting and current_meeting.status not in ["COMPLETED", "FAILED"]:
-                logger.warning(f"🚨 Meeting {meeting.id} still needs fallback after delay, triggering polling")
+                logger.warning(f"Meeting {meeting.id} still needs fallback after delay, triggering polling")
                 await self._trigger_polling_fallback(current_meeting, db)
                 
         except Exception as e:
@@ -236,18 +232,15 @@ class WebhookDeliveryService:
     ) -> bool:
         """Process webhook delivery and track status"""
         try:
-            logger.info(f"📨 Processing webhook delivery for event {webhook_event.id}: {webhook_event.event_type}")
-            
             # Mark as delivered
             webhook_event.delivery_status = "delivered"
             webhook_event.processed_at = datetime.now(timezone.utc)
-            await db.commit()
+            # Don't commit here - let the calling transaction handle it
             
             # Check if this is a critical event that should trigger fallback monitoring
             if self._is_critical_event(webhook_event):
                 await self._schedule_fallback_monitoring(webhook_event, db)
             
-            logger.info(f"✅ Webhook {webhook_event.id} delivered successfully")
             return True
             
         except Exception as e:
@@ -262,10 +255,8 @@ class WebhookDeliveryService:
             failed_webhooks = await self._get_failed_webhooks(db)
             
             if not failed_webhooks:
-                logger.debug("No failed webhooks to retry")
                 return 0
             
-            logger.info(f"🔄 Retrying {len(failed_webhooks)} failed webhooks")
             retry_count = 0
             
             for webhook in failed_webhooks:
@@ -276,7 +267,6 @@ class WebhookDeliveryService:
                     # Mark as permanently failed
                     await self._mark_permanently_failed(webhook, db)
             
-            logger.info(f"✅ Retried {retry_count} webhooks successfully")
             return retry_count
             
         except Exception as e:
@@ -290,10 +280,9 @@ class WebhookDeliveryService:
             missing_critical_events = await self._find_missing_critical_events(db)
             
             if not missing_critical_events:
-                logger.debug("No missing critical events detected")
                 return 0
             
-            logger.info(f"🚨 Found {len(missing_critical_events)} meetings missing critical events, triggering polling fallback")
+            # Found meetings missing critical events, triggering polling fallback
             
             for meeting in missing_critical_events:
                 await self._trigger_polling_fallback(meeting, db)
@@ -329,7 +318,7 @@ class WebhookDeliveryService:
             asyncio.create_task(
                 self._check_critical_event_completion(webhook_event, db)
             )
-            logger.info(f"📅 Scheduled fallback monitoring for webhook {webhook_event.id}")
+            # Scheduled fallback monitoring
             
         except Exception as e:
             logger.error(f"Error scheduling fallback monitoring: {e}")
@@ -348,7 +337,7 @@ class WebhookDeliveryService:
             if webhook_event.meeting_id:
                 meeting = await db.get(Meeting, webhook_event.meeting_id)
                 if meeting and meeting.status != "COMPLETED":
-                    logger.warning(f"⚠️ Critical event {webhook_event.id} not properly processed, triggering polling fallback")
+                    logger.warning(f"Critical event {webhook_event.id} not properly processed, triggering polling fallback")
                     await self._trigger_polling_fallback(meeting, db)
                     
         except Exception as e:
@@ -357,8 +346,6 @@ class WebhookDeliveryService:
     async def _trigger_polling_fallback(self, meeting: Meeting, db: AsyncSession):
         """Trigger polling fallback for a meeting"""
         try:
-            logger.info(f"🔄 Triggering polling fallback for meeting {meeting.id}")
-            
             # Use the polling service to check meeting status
             await polling_service.manual_check_meeting(meeting.id)
             
@@ -399,15 +386,12 @@ class WebhookDeliveryService:
     async def _retry_webhook_delivery(self, webhook: WebhookEvent, db: AsyncSession) -> bool:
         """Retry webhook delivery"""
         try:
-            logger.info(f"🔄 Retrying webhook delivery {webhook.id} (attempt {webhook.delivery_attempts + 1})")
-            
             # Update retry information
             webhook.delivery_status = "retrying"
             webhook.delivery_attempts += 1
             webhook.last_delivery_attempt = datetime.now(timezone.utc)
             webhook.delivery_error = None
-            
-            await db.commit()
+            # Don't commit here - let the calling transaction handle it
             
             # Simulate webhook retry (in real implementation, this would resend the webhook)
             # For now, we'll just mark it as delivered after a short delay
@@ -416,9 +400,8 @@ class WebhookDeliveryService:
             # Mark as delivered
             webhook.delivery_status = "delivered"
             webhook.processed_at = datetime.now(timezone.utc)
-            await db.commit()
+            # Don't commit here - let the calling transaction handle it
             
-            logger.info(f"✅ Webhook {webhook.id} retry successful")
             return True
             
         except Exception as e:
@@ -432,7 +415,7 @@ class WebhookDeliveryService:
             webhook.delivery_status = "failed"
             webhook.delivery_error = error
             webhook.last_delivery_attempt = datetime.now(timezone.utc)
-            await db.commit()
+            # Don't commit here - let the calling transaction handle it
             
         except Exception as e:
             logger.error(f"Error marking webhook {webhook.id} as failed: {e}")
@@ -442,9 +425,9 @@ class WebhookDeliveryService:
         try:
             webhook.delivery_status = "permanently_failed"
             webhook.delivery_error = f"Max retry attempts ({self.max_retry_attempts}) exceeded"
-            await db.commit()
+            # Don't commit here - let the calling transaction handle it
             
-            logger.warning(f"⚠️ Webhook {webhook.id} marked as permanently failed")
+            # Webhook marked as permanently failed
             
         except Exception as e:
             logger.error(f"Error marking webhook {webhook.id} as permanently failed: {e}")

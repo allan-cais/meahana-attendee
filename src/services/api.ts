@@ -45,9 +45,26 @@ class ApiService {
 
   // Create a new meeting bot
   async createBot(request: CreateBotRequest): Promise<CreateBotResponse> {
+    // webhook_base_url is required by the type, so webhooks are always created
+    const webhookUrl = `${request.webhook_base_url.replace(/\/$/, '')}/webhook`;
+    const requestBody = {
+      ...request,
+      webhooks: [
+        {
+          url: webhookUrl,
+          triggers: [
+            'bot.state_change',
+            'transcript.update', 
+            'chat_messages.update',
+            'participant_events.join_leave'
+          ]
+        }
+      ]
+    };
+
     return this.makeRequest<CreateBotResponse>('/api/v1/bots/', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestBody),
     });
   }
 

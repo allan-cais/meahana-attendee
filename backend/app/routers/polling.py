@@ -103,8 +103,6 @@ async def manually_check_meeting(
 ):
     """Manually check a specific meeting for completion status"""
     try:
-        logger.info(f"Manual check requested for meeting {request.meeting_id}")
-        
         success = await polling_service.manual_check_meeting(request.meeting_id)
         
         if success:
@@ -132,8 +130,6 @@ async def manually_check_meeting(
 async def check_all_pending_meetings(background_tasks: BackgroundTasks):
     """Manually trigger a check of all pending meetings"""
     try:
-        logger.info("Manual check of all pending meetings requested")
-        
         # Run the polling check in background
         background_tasks.add_task(polling_service._poll_completed_meetings)
         
@@ -161,15 +157,12 @@ async def configure_polling(
     try:
         if polling_interval is not None:
             polling_service.polling_interval = max(30, polling_interval)  # Minimum 30 seconds
-            logger.info(f"Polling interval set to {polling_service.polling_interval} seconds")
         
         if max_retries is not None:
             polling_service.max_retries = max(1, max_retries)  # Minimum 1 retry
-            logger.info(f"Max retries set to {polling_service.max_retries}")
         
         if retry_delay is not None:
             polling_service.retry_delay = max(10, retry_delay)  # Minimum 10 seconds
-            logger.info(f"Retry delay set to {polling_service.retry_delay} seconds")
         
         return PollingResponse(
             success=True,

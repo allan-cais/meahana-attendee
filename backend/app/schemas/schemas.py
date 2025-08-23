@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models.enums import MeetingStatus
@@ -7,8 +7,9 @@ from app.models.enums import MeetingStatus
 # Base schemas
 class MeetingBase(BaseModel):
     meeting_url: HttpUrl
-    bot_id: Optional[str] = None
+    bot_name: str
     join_at: Optional[datetime] = None
+    webhook_base_url: str  # Required for bot-level webhooks to work
 
 
 class MeetingCreate(MeetingBase):
@@ -21,16 +22,27 @@ class MeetingUpdate(BaseModel):
     join_at: Optional[datetime] = None
 
 
-class MeetingResponse(MeetingBase):
+class MeetingResponse(BaseModel):
     id: int
+    meeting_url: HttpUrl
+    bot_name: Optional[str] = None  # Will be populated from meeting_metadata
     bot_id: Optional[str] = None
     status: MeetingStatus
     meeting_metadata: Dict[str, Any]
+    join_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+        
+    @field_validator('bot_name', mode='before')
+    @classmethod
+    def extract_bot_name(cls, v, info):
+        """Extract bot_name from meeting_metadata if not directly provided"""
+        if v is None and 'meeting_metadata' in info.data:
+            return info.data['meeting_metadata'].get('bot_name')
+        return v
 
 
 # Transcript schemas
@@ -84,15 +96,36 @@ ReportSchema = ReportResponse
 
 # Webhook schemas
 class WebhookPayload(BaseModel):
+    idempotency_key: Optional[str] = None
+    bot_id: Optional[str] = None
+    bot_metadata: Optional[Dict[str, Any]] = None
+    trigger: str
     data: Dict[str, Any]
     
     def get_event_type(self) -> str:
         """Extract event type from payload data"""
-        return self.data.get("event_type", "unknown")
+        # For bot.state_change trigger, check the data.event_type
+        if self.trigger == "bot.state_change":
+            return self.data.get("event_type", "bot.state_change")
+        
+        # For transcript.update trigger
+        elif self.trigger == "transcript.update":
+            return "transcript.chunk"
+        
+        # For chat_messages.update trigger
+        elif self.trigger == "chat_messages.update":
+            return "chat_message"
+        
+        # For participant_events.join_leave trigger
+        elif self.trigger == "participant_events.join_leave":
+            return f"participant_events.{self.data.get('event_type', 'unknown')}"
+        
+        # Default to trigger type
+        return self.trigger
     
     def get_bot_id(self) -> Optional[str]:
         """Extract bot ID from payload data"""
-        return self.data.get("bot_id")
+        return self.bot_id
 
 
 # Composite schemas

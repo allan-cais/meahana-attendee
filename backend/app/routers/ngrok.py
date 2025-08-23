@@ -171,19 +171,15 @@ async def get_ngrok_status():
         
         # Add helpful guidance for development
         guidance = []
-        if tunnel_info.get("external_url"):
-            guidance.append("✅ External ngrok tunnel detected and active")
-            guidance.append(f"🌐 Public URL: {tunnel_info.get('public_url')}")
-            guidance.append(f"🔗 Webhook URL: {tunnel_info.get('webhook_url')}")
-        else:
-            guidance.append("❌ No external ngrok tunnel detected")
-            guidance.append("💡 Start ngrok in another terminal: ngrok http 8000")
-            guidance.append("💡 Or use /ngrok/start to start internal tunnel")
+        
+        if not tunnel_info.get("is_active"):
+            guidance.append("Use /ngrok/start to start a tunnel")
+            guidance.append("Or use /ngrok/auto-start for background startup")
         
         if tunnel_info.get("managed_externally"):
-            guidance.append("📋 Tunnel managed externally (not by this service)")
+            guidance.append("Tunnel managed externally (not by this service)")
         else:
-            guidance.append("📋 Tunnel managed by this service")
+            guidance.append("Tunnel managed by this service")
         
         return NgrokResponse(
             success=True,
@@ -261,7 +257,6 @@ async def auto_start_ngrok(background_tasks: BackgroundTasks):
         def start_tunnel_background():
             try:
                 ngrok_service.start_tunnel(port=8000)
-                logger.info("Ngrok tunnel auto-started successfully")
             except Exception as e:
                 logger.error(f"Error auto-starting ngrok tunnel: {e}")
         

@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:18-slim
 
 WORKDIR /app
 
@@ -14,11 +14,8 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Install serve to run the app
-RUN npm install -g serve
-
 # Expose port
 EXPOSE 3000
 
-# Start the app
-CMD ["serve", "-s", "build", "-l", "3000"]
+# Start the app using local serve package
+CMD ["./node_modules/.bin/serve", "-s", "build", "-l", "3000"]

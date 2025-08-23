@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import bots, reports
+from app.routers import bots, reports, webhooks, ngrok
 import logging
 
 # Configure logging
@@ -17,7 +17,6 @@ app = FastAPI(
     title=settings.app_name,
     description="Meahana Attendee Integration API",
     version="1.0.0",
-    debug=settings.debug,
 )
 
 # Add CORS middleware
@@ -32,13 +31,14 @@ app.add_middleware(
 # Include routers
 app.include_router(bots.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/meeting")
+app.include_router(webhooks.router)
+app.include_router(ngrok.router)
 
 
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler"""
-    logger.info(f"Starting {settings.app_name}...")
-    logger.info(f"Environment: {settings.environment}")
+    # Application startup complete
 
 
 @app.get("/")
@@ -63,5 +63,4 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=settings.debug,
     ) 

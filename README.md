@@ -37,8 +37,9 @@ docker-compose up --build
 This will start:
 - Frontend on http://localhost:3000
 - Backend API on http://localhost:8000
-- PostgreSQL on localhost:5432
 - Redis on localhost:6379
+
+**Note**: This setup expects a local PostgreSQL database. For production, use `docker-compose.prod.yml`.
 
 ### Option 2: Development Mode
 
@@ -47,10 +48,16 @@ This will start:
 npm install
 
 # Install backend dependencies
-npm run backend:install
+cd backend && pip install -r requirements.txt
 
-# Start both frontend and backend
-npm run dev
+# Start database services (required)
+docker-compose up -d redis
+
+# Start backend
+cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Start frontend in another terminal
+npm start
 ```
 
 ## 🔧 Development
@@ -79,7 +86,10 @@ npm run backend:docker
 
 ```bash
 # Start database services
-docker-compose up db redis
+docker-compose up -d db redis
+
+# Reset database (clear all data)
+./reset-db.sh
 
 # Run migrations
 cd backend && alembic upgrade head
@@ -87,6 +97,33 @@ cd backend && alembic upgrade head
 # Create new migration
 cd backend && alembic revision --autogenerate -m "description"
 ```
+
+**Important**: The backend connects to your local PostgreSQL database to ensure consistency between development and production environments.
+
+## 🚀 Production Deployment
+
+### Production Docker Compose
+
+For production deployment, use the production-optimized compose file:
+
+```bash
+# Start production services
+docker-compose -f docker-compose.prod.yml up --build -d
+
+# View logs
+docker-compose -f docker-compose.prod.yml logs -f
+
+# Stop services
+docker-compose -f docker-compose.prod.yml down
+```
+
+### Production Features
+
+- **No development reload** - Stable, production-ready backend
+- **Optimized logging** - Minimal, production-appropriate logging
+- **Production environment** - Defaults to production mode
+- **Health checks** - Built-in health monitoring endpoints
+- **CORS configured** - Secure cross-origin request handling
 
 ## 🌐 API Endpoints
 

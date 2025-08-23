@@ -1,12 +1,10 @@
 import React from 'react';
-import { BarChart3, TrendingUp, Users, Calendar, RefreshCw, Zap } from 'lucide-react';
+import { BarChart3, TrendingUp, Users } from 'lucide-react';
 import { ScorecardResponse, MeetingConfig } from '../types';
 
 interface ScorecardScreenProps {
   scorecardData: ScorecardResponse;
   config: MeetingConfig;
-  onRefresh: () => void;
-  onTriggerAnalysis: () => void;
   loading: boolean;
   error: string | null;
 }
@@ -14,8 +12,6 @@ interface ScorecardScreenProps {
 const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
   scorecardData,
   config,
-  onRefresh,
-  onTriggerAnalysis,
   loading,
   error
 }) => {
@@ -26,24 +22,6 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
           <BarChart3 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-600 mb-2">Scorecard Not Available</h2>
           <p className="text-gray-500 mb-4">{scorecardData?.message || 'No scorecard data available'}</p>
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={onRefresh}
-              disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button
-              onClick={onTriggerAnalysis}
-              disabled={loading}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-            >
-              <Zap className="w-4 h-4" />
-              {loading ? 'Processing...' : 'Generate Analysis'}
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -59,24 +37,6 @@ const ScorecardScreen: React.FC<ScorecardScreenProps> = ({
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Meeting Scorecard</h1>
             <p className="text-gray-600">{config.bot_name} • {config.meeting_url}</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={onRefresh}
-              disabled={loading}
-              className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button
-              onClick={onTriggerAnalysis}
-              disabled={loading}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-            >
-              <Zap className="w-4 h-4" />
-              {loading ? 'Processing...' : 'Re-analyze'}
-            </button>
           </div>
         </div>
         

@@ -6,26 +6,45 @@ from typing import Optional
 class Settings(BaseSettings):
     # Core Configuration
     app_name: str = Field(default="Meahana Attendee", description="Application name")
-    environment: str = Field(default="development", description="Environment")
+    environment: str = Field(default="production", description="Environment")
     debug: bool = Field(default=False, description="Debug mode")
     
     # Database
-    database_url: str = Field(..., description="Database connection URL")
+    database_url: str = Field(default="postgresql+asyncpg://meahana:meahana_pass@localhost:5432/meahana_db", description="Database connection URL")
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     
+    # Ngrok Configuration
+    ngrok_auth_token: Optional[str] = Field(default=None, description="Ngrok authentication token")
+    
     # Attendee API
     attendee_api_key: str = Field(..., description="Attendee API key")
     attendee_api_base_url: str = Field(default="https://app.attendee.dev", description="Attendee API base URL")
+    
+    # Polling Configuration
+    polling_interval: int = Field(default=30, description="Polling interval in seconds")
+    polling_max_retries: int = Field(default=3, description="Maximum polling retry attempts")
+    polling_retry_delay: int = Field(default=60, description="Delay between polling retries in seconds")
+    
+    # Webhook Configuration
+    webhook_base_url: Optional[str] = Field(default=None, description="Base URL for webhook endpoints")
+    webhook_max_retry_attempts: int = Field(default=3, description="Maximum webhook delivery retry attempts")
+    webhook_retry_delays: str = Field(default="5,30,300", description="Comma-separated retry delays in seconds")
+    webhook_fallback_timeout: int = Field(default=30, description="Webhook delivery timeout in seconds")
     
     @property
     def is_production(self) -> bool:
         """Check if running in production environment"""
         return self.environment.lower() == "production"
     
+    @property
+    def should_use_ngrok(self) -> bool:
+        """Check if ngrok should be used for webhook URLs"""
+        return self.environment.lower() == "development" and not self.webhook_base_url
+    
     class Config:
-        env_file = ".env"
+        env_file = "/app/.env"
         env_file_encoding = "utf-8"
         extra = "ignore"
 

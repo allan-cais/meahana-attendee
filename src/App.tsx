@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Bot, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Bot, Plus, Trash2 } from 'lucide-react';
 import { MeetingConfig, MeetingBot, ScorecardResponse } from './types';
 import Sidebar from './components/Sidebar';
 import ConfigScreen from './components/ConfigScreen';
@@ -13,7 +13,8 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<MeetingConfig>({
     meeting_url: '',
     bot_name: '',
-    join_at: undefined
+    join_at: undefined,
+    webhook_base_url: '' // No hardcoded default - user must input this
   });
   
   const [scorecardCache, setScorecardCache] = useState<Map<number, ScorecardResponse>>(new Map());
@@ -39,14 +40,20 @@ const App: React.FC = () => {
         handleBotSelect(mostRecentBot.id);
       }
     } catch (error) {
-      console.error('Failed to load bots:', error);
+      setError('Failed to load bots. Please refresh the page.');
     }
   };
 
   const handleNewBot = () => {
     setSelectedBotId(null);
     setIsCreatingNewBot(true);
-    setConfig({ meeting_url: '', bot_name: '', join_at: undefined });
+    // Set default webhook URL to point to our backend
+    setConfig({ 
+      meeting_url: '', 
+      bot_name: '', 
+      join_at: undefined, 
+      webhook_base_url: 'http://localhost:8000' 
+    });
     setError(null);
   };
 
@@ -92,7 +99,8 @@ const App: React.FC = () => {
       setConfig({
         meeting_url: bot.meeting_url,
         bot_name: bot.meeting_metadata.bot_name,
-        join_at: bot.meeting_metadata.join_at
+        join_at: bot.meeting_metadata.join_at,
+        webhook_base_url: bot.meeting_metadata.webhook_base_url // Only set if it exists, no hardcoded fallback
       });
       
       // Fetch scorecard if completed
@@ -109,7 +117,7 @@ const App: React.FC = () => {
       
       if (selectedBotId === botId) {
         setSelectedBotId(null);
-        setConfig({ meeting_url: '', bot_name: '', join_at: undefined });
+        setConfig({ meeting_url: '', bot_name: '', join_at: undefined, webhook_base_url: '' });
       }
     } catch (error) {
       alert(`Failed to delete bot: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -157,35 +165,10 @@ const App: React.FC = () => {
     }
   };
 
-  const refreshBotStatus = async () => {
-    if (!selectedBotId) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const statusResult = await apiService.pollBotStatus(selectedBotId);
-      
-      if (statusResult.status_updated) {
-        setBots(prev => prev.map(bot => 
-          bot.id === selectedBotId 
-            ? { ...bot, status: statusResult.new_status as MeetingBot['status'], updated_at: new Date().toISOString() }
-            : bot
-        ));
-        
-        if (statusResult.new_status === 'PENDING' || statusResult.new_status === 'STARTED') {
-          startStatusPolling(selectedBotId);
-        }
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to refresh bot status');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const shouldShowReport = selectedBot && selectedBot.status === 'COMPLETED' && currentScorecardData?.scorecard;
   const shouldShowConfig = selectedBot && selectedBot.status !== 'COMPLETED';
+  // Allow multiple bots to be created regardless of status
+  const isBotInMeeting = false;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -224,19 +207,6 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              
-              {selectedBotId && selectedBot && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={refreshBotStatus}
-                    disabled={loading}
-                    className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-3 py-2 rounded-lg transition-colors duration-200 flex items-center gap-2"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    {loading ? 'Refreshing...' : 'Refresh'}
-                  </button>
-                </div>
-              )}
             </div>
           </header>
 
@@ -249,6 +219,7 @@ const App: React.FC = () => {
                 onSubmit={handleConfigSubmit}
                 loading={loading}
                 error={error}
+                isBotInMeeting={isBotInMeeting}
               />
             ) : !selectedBotId ? (
               <div className="flex items-center justify-center h-full">
@@ -262,20 +233,6 @@ const App: React.FC = () => {
               <ScorecardScreen
                 scorecardData={currentScorecardData}
                 config={config}
-                onRefresh={() => fetchScorecardData(selectedBotId)}
-                onTriggerAnalysis={async () => {
-                  if (selectedBotId) {
-                    try {
-                      setLoading(true);
-                      await apiService.triggerAnalysis(selectedBotId);
-                      setTimeout(() => fetchScorecardData(selectedBotId), 3000);
-                    } catch (error) {
-                      setError(error instanceof Error ? error.message : 'Failed to trigger analysis');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }
-                }}
                 loading={loading}
                 error={error}
               />
@@ -286,6 +243,7 @@ const App: React.FC = () => {
                 onSubmit={handleConfigSubmit}
                 loading={loading}
                 error={error}
+                isBotInMeeting={isBotInMeeting}
               />
             ) : (
               <div className="flex items-center justify-center h-full">

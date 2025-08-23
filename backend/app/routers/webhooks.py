@@ -1,73 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services.webhook_service import WebhookService
 from app.schemas.schemas import WebhookPayload
-from app.core.config import settings
-import hmac
-import hashlib
-import json
 import logging
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
-
-
-@router.get("/debug")
-async def get_webhook_debug_info(db: AsyncSession = Depends(get_db)):
-    """Debug endpoint to see webhook events and bot statuses"""
-    try:
-        from sqlalchemy import select
-        from app.models.models import WebhookEvent, Meeting
-        
-        # Get recent webhook events
-        webhook_result = await db.execute(
-            select(WebhookEvent)
-            .order_by(WebhookEvent.created_at.desc())
-            .limit(10)
-        )
-        webhook_events = webhook_result.scalars().all()
-        
-        # Get all meetings with their statuses
-        meetings_result = await db.execute(
-            select(Meeting)
-            .order_by(Meeting.created_at.desc())
-        )
-        meetings = meetings_result.scalars().all()
-        
-        return {
-            "webhook_events": [
-                {
-                    "id": event.id,
-                    "event_type": event.event_type,
-                    "meeting_id": event.meeting_id,
-                    "bot_id": event.bot_id,
-                    "created_at": event.created_at.isoformat(),
-                    "event_data": event.event_data,
-                    "raw_payload": event.raw_payload,
-                    "processed": event.processed,
-                    "processed_at": event.processed_at.isoformat() if event.processed_at else None
-                }
-                for event in webhook_events
-            ],
-            "meetings": [
-                {
-                    "id": meeting.id,
-                    "bot_id": meeting.bot_id,
-                    "status": meeting.status,
-                    "meeting_url": meeting.meeting_url,
-                    "created_at": meeting.created_at.isoformat(),
-                    "updated_at": meeting.updated_at.isoformat()
-                }
-                for meeting in meetings
-            ]
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting webhook debug info: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/url")
@@ -83,13 +24,12 @@ async def get_webhook_url():
         
         return {
             "webhook_url": webhook_url,
-            "message": "Copy this URL to the Attendee API webhook configuration",
+            "message": "This is the global webhook URL (for project-level webhooks)",
+            "note": "For bot-level webhooks (recommended), each bot specifies its own webhook URL during creation",
             "instructions": [
-                "1. Go to the Attendee API Developer Portal",
-                "2. Create a new webhook",
-                "3. Paste this URL into the 'Webhook URL' field",
-                "4. Select all triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave",
-                "5. Click 'Create'"
+                "1. For bot-level webhooks: Set webhook_base_url in bot config (e.g., your ngrok URL)",
+                "2. Bot-level webhooks are automatically created when bots are created via API",
+                "3. Select triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave"
             ]
         }
         
@@ -106,7 +46,7 @@ async def handle_webhook(
 ) -> Dict[str, Any]:
     """Handle webhook events from Attendee API"""
     try:
-        result = await WebhookService.handle_event(payload, db, background_tasks)
+        result = await WebhookService.process_webhook(payload, db, background_tasks)
         return result
         
     except Exception as e:
@@ -116,35 +56,15 @@ async def handle_webhook(
 
 @router.post("/attendee")
 async def handle_attendee_webhook(
-    request: Request,
+    payload: WebhookPayload,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Handle webhook events from Attendee API with signature verification"""
+    """Handle webhook events from Attendee API"""
     try:
-        # Get the raw body for signature verification
-        raw_body = await request.body()
-        
-        # Parse the JSON payload
-        payload_dict = json.loads(raw_body)
-        
-        # Verify webhook signature if secret is configured
-        if settings.webhook_secret:
-            signature = request.headers.get("X-Webhook-Signature")
-            if not signature or not verify_attendee_signature(raw_body, signature):
-                raise HTTPException(status_code=401, detail="Invalid signature")
-        
-        # Convert to WebhookPayload
-        payload = WebhookPayload(**payload_dict)
-        
-        # Handle the webhook event
-        result = await WebhookService.handle_event(payload, db, background_tasks)
-        
+        result = await WebhookService.process_webhook(payload, db, background_tasks)
         return result
         
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON payload")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
         logger.error(f"Error processing Attendee webhook: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -189,14 +109,14 @@ async def retry_failed_webhooks(
                 
                 # Process in background to avoid blocking
                 background_tasks.add_task(
-                    WebhookService.handle_event,
+                    WebhookService.process_webhook,
                     payload,
                     db,
                     background_tasks
                 )
                 
                 retry_count += 1
-                logger.info(f"Retrying webhook {webhook.id}: {webhook.event_type}")
+                # Retrying webhook
                 
             except Exception as e:
                 logger.error(f"Error retrying webhook {webhook.id}: {e}")
@@ -212,22 +132,4 @@ async def retry_failed_webhooks(
         raise HTTPException(status_code=500, detail=f"Failed to retry webhooks: {str(e)}")
 
 
-def verify_attendee_signature(raw_body: bytes, signature_header: str) -> bool:
-    """Verify Attendee webhook signature"""
-    try:
-        if not settings.webhook_secret:
-            return True
-            
-        # Calculate expected signature
-        expected_signature = hmac.new(
-            settings.webhook_secret.encode(),
-            raw_body,
-            hashlib.sha256
-        ).hexdigest()
-        
-        # Compare signatures
-        return hmac.compare_digest(f"sha256={expected_signature}", signature_header)
-        
-    except Exception as e:
-        logger.error(f"Error verifying signature: {e}")
-        return False 
+ 

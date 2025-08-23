@@ -6,7 +6,6 @@ from app.core.config import settings
 # Create async engine
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.debug,
     future=True
 )
 

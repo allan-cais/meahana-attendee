@@ -1,18 +1,8 @@
+# IMPORTANT: This app uses your LOCAL PostgreSQL database, NOT Docker
+# Make sure your local PostgreSQL is running on localhost:5432
+# The backend container connects to host.docker.internal:5432
+
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: meahana-db
-    environment:
-      POSTGRES_DB: meahana_db
-      POSTGRES_USER: meahana
-      POSTGRES_PASSWORD: meahana_pass
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - meahana-network
 
   redis:
     image: redis:7-alpine
@@ -31,25 +21,24 @@ services:
       dockerfile: Dockerfile
     container_name: meahana-backend
     depends_on:
-      - db
       - redis
     environment:
-      - DATABASE_URL=postgresql+asyncpg://meahana:meahana_pass@db:5432/meahana_db
-      - REDIS_URL=redis://redis:6379/0
+      - database_url=postgresql+asyncpg://meahana:meahana_pass@host.docker.internal:5432/meahana_db
+      - redis_url=redis://redis:6379/0
       - ATTENDEE_API_KEY=${ATTENDEE_API_KEY}
       - ATTENDEE_API_BASE_URL=${ATTENDEE_API_BASE_URL:-https://app.attendee.dev}
-      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - environment=${ENVIRONMENT:-production}
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL}
+
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     restart: unless-stopped
     command: >
       sh -c "
         echo 'Waiting for database...' &&
         sleep 5 &&
         alembic upgrade head &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
       "
     networks:
       - meahana-network
@@ -63,13 +52,6 @@ services:
       - "3000:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8000
-      - CHOKIDAR_USEPOLLING=true
-    volumes:
-      - ./src:/app/src
-      - ./public:/app/public
-      - ./package.json:/app/package.json
-      - ./tsconfig.json:/app/tsconfig.json
-      - ./tailwind.config.js:/app/tailwind.config.js
     depends_on:
       - backend
     restart: unless-stopped
@@ -77,8 +59,9 @@ services:
       - meahana-network
 
 volumes:
-  postgres_data:
   redis_data:
+
+
 
 networks:
   meahana-network:

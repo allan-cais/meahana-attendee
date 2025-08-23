@@ -83,6 +83,7 @@ async def get_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
 async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a bot"""
     try:
+        # Get the meeting with all related data
         result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
         meeting = result.scalar_one_or_none()
         
@@ -92,7 +93,8 @@ async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
                 detail="Bot not found"
             )
         
-        await db.execute(delete(Meeting).where(Meeting.id == bot_id))
+        # Delete the meeting - cascade should handle related records
+        await db.delete(meeting)
         await db.commit()
         
         return MessageResponse(message="Bot deleted successfully")
@@ -100,9 +102,13 @@ async def delete_bot(bot_id: int, db: AsyncSession = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Failed to delete bot {bot_id}: {e}")
+        # Log the full error for debugging
+        import traceback
+        logger.error(f"Delete error traceback: {traceback.format_exc()}")
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete bot"
+            detail=f"Failed to delete bot: {str(e)}"
         )
 
 

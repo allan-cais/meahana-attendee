@@ -77,7 +77,15 @@ backend/*.pyo
 backend/*.pyd
 backend/.Python
 backend/env/
-backend/venv/
 backend/ENV/
 backend/env.bak/
 backend/venv.bak/
+
+# Python cache files (globally)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Alembic cache
+backend/alembic/__pycache__/
+backend/alembic/versions/__pycache__/

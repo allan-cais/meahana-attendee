@@ -59,14 +59,12 @@ class CloudflareTunnelService:
                                 self.webhook_url = f"{self.external_url}/webhook/"
                                 self.is_running = True
                                 
-                                logger.info(f"Detected external Cloudflare tunnel: {self.external_url}")
-                                logger.info(f"External webhook URL: {self.webhook_url}")
                                 return
                 except Exception as e:
-                    logger.debug(f"Could not get tunnel info: {e}")
+                    pass  # Could not get tunnel info
                     
         except Exception as e:
-            logger.debug(f"Could not detect external Cloudflare tunnel: {e}")
+            pass  # Could not detect external Cloudflare tunnel
     
     def set_external_url(self, external_url: str):
         """Manually set external Cloudflare tunnel URL"""
@@ -75,23 +73,16 @@ class CloudflareTunnelService:
             self.public_url = self.external_url
             self.webhook_url = f"{self.external_url}/webhook/"
             self.is_running = True
-            
-            logger.info(f"Set external Cloudflare tunnel URL: {self.external_url}")
-            logger.info(f"Webhook URL: {self.webhook_url}")
     
     def start_tunnel(self, port: int = 8000, domain: Optional[str] = None) -> str:
         """Start Cloudflare tunnel"""
         try:
             # If external tunnel is already detected, return that
             if self.external_url:
-                logger.info(f"Using existing external Cloudflare tunnel: {self.external_url}")
                 return self.external_url
             
             if self.is_running and self.tunnel_process:
-                logger.info("Cloudflare tunnel already running")
                 return self.public_url
-            
-            logger.info(f"Starting Cloudflare tunnel on port {port}")
             
             # Build cloudflared command
             cmd = ['cloudflared', 'tunnel', '--url', f'http://localhost:{port}']
@@ -99,7 +90,6 @@ class CloudflareTunnelService:
             # Add custom domain if provided
             if domain:
                 cmd.extend(['--hostname', domain])
-                logger.info(f"Using custom domain: {domain}")
             
             # Start tunnel process
             self.tunnel_process = subprocess.Popen(
@@ -124,9 +114,6 @@ class CloudflareTunnelService:
                             self.webhook_url = f"{self.public_url}/webhook/"
                             self.is_running = True
                             
-                            logger.info(f"Cloudflare tunnel started: {self.public_url}")
-                            logger.info(f"Webhook URL: {self.webhook_url}")
-                            
                             return self.public_url
             except Exception as e:
                 logger.warning(f"Could not get tunnel info: {e}")
@@ -136,9 +123,6 @@ class CloudflareTunnelService:
                 self.public_url = f"https://{self.tunnel_name}.trycloudflare.com"
                 self.webhook_url = f"{self.public_url}/webhook/"
                 self.is_running = True
-                
-                logger.info(f"Cloudflare tunnel started (fallback): {self.public_url}")
-                logger.info(f"Webhook URL: {self.webhook_url}")
             
             return self.public_url
             
@@ -154,7 +138,6 @@ class CloudflareTunnelService:
         """Stop Cloudflare tunnel"""
         try:
             if self.external_url:
-                logger.info("Cannot stop external Cloudflare tunnel - managed externally")
                 return
                 
             if self.tunnel_process:
@@ -164,9 +147,8 @@ class CloudflareTunnelService:
                 self.public_url = None
                 self.webhook_url = None
                 self.is_running = False
-                logger.info("Cloudflare tunnel stopped")
             else:
-                logger.info("No Cloudflare tunnel to stop")
+                pass  # No Cloudflare tunnel to stop
                 
         except Exception as e:
             logger.error(f"Error stopping Cloudflare tunnel: {e}")
@@ -200,10 +182,10 @@ class CloudflareTunnelService:
     def restart_tunnel(self, port: int = 8000, domain: Optional[str] = None) -> str:
         """Restart Cloudflare tunnel"""
         if self.external_url:
-            logger.info("Cannot restart external Cloudflare tunnel - managed externally")
+            # Cannot restart external Cloudflare tunnel - managed externally
             return self.external_url
             
-        logger.info("Restarting Cloudflare tunnel")
+        # Restarting Cloudflare tunnel
         self.stop_tunnel()
         time.sleep(1)  # Give tunnel time to clean up
         return self.start_tunnel(port, domain)
