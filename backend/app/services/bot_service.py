@@ -128,7 +128,7 @@ class BotService:
             payload["join_at"] = meeting.join_at.isoformat()
         
         # Add webhooks configuration - REQUIRED for bot-level webhooks to work
-        webhook_url = f"{meeting.webhook_base_url.rstrip('/')}/webhook"
+        webhook_url = f"{meeting.webhook_base_url.rstrip('/')}/webhook/"
         payload["webhooks"] = [
             {
                 "url": webhook_url,

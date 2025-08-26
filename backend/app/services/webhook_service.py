@@ -20,12 +20,12 @@ class WebhookService:
         
         # Production: Use configured webhook base URL if available
         if settings.is_production and settings.webhook_base_url:
-            webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook"
+            webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/"
             return webhook_url
         
         # Development: Show available options
         if settings.webhook_base_url:
-            webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook"
+            webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/"
             return webhook_url
         
         return None
