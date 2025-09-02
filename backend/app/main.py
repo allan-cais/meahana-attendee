@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import bots, reports, webhooks, ngrok
+from app.routers import bots, reports, webhooks, ngrok, auth
 import logging
 
 # Configure logging
@@ -29,6 +29,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(bots.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/meeting")
 app.include_router(webhooks.router)

@@ -1,11 +1,9 @@
 import httpx
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import datetime
 from app.core.config import settings
-from app.models.models import Meeting
-from app.schemas.schemas import MeetingCreate, BotCreateResponse, StatusPollResponse
-from app.models.enums import MeetingStatus
+from app.core.database import get_supabase
+from app.schemas.schemas import MeetingCreate, BotCreateResponse, StatusPollResponse, MeetingStatus
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -15,6 +13,7 @@ class BotService:
     def __init__(self):
         self.api_key = settings.attendee_api_key
         self.base_url = settings.attendee_api_base_url
+        self.supabase = get_supabase()
         self.client = httpx.AsyncClient(
             headers={
                 "Authorization": f"Token {self.api_key}",
@@ -23,65 +22,85 @@ class BotService:
             timeout=30.0
         )
     
-    async def create_bot(self, meeting: MeetingCreate, db: AsyncSession) -> BotCreateResponse:
+    async def create_bot(self, meeting: MeetingCreate, user_id: str) -> BotCreateResponse:
         """Create a new meeting bot"""
         try:
-            # Create meeting record in pending status
-            db_meeting = Meeting(
-                meeting_url=str(meeting.meeting_url),
-                status=MeetingStatus.PENDING,
-                meeting_metadata={
+            # Create meeting record in Supabase
+            meeting_data = {
+                "meeting_url": str(meeting.meeting_url),
+                "status": "pending",
+                "user_id": user_id,
+                "meeting_metadata": {
                     "bot_name": meeting.bot_name,
                     "join_at": meeting.join_at.isoformat() if meeting.join_at else None,
                     "webhook_base_url": getattr(meeting, 'webhook_base_url', None)
                 }
-            )
+            }
             
-            # Add to session but don't commit yet
-            db.add(db_meeting)
-            await db.flush()  # Get the ID without committing
+            # Insert into Supabase
+            result = self.supabase.table("meetings").insert(meeting_data).execute()
+            
+            if not result.data:
+                raise Exception("Failed to create meeting record")
+            
+            db_meeting = result.data[0]
             
             # Call Attendee API to create bot
             bot_data = await self._create_attendee_bot(meeting)
             
             # Update meeting with bot_id and status
-            db_meeting.bot_id = bot_data["id"]
-            db_meeting.status = MeetingStatus.STARTED
+            update_data = {
+                "bot_id": bot_data["id"],
+                "status": "started"
+            }
             
-            # Now commit everything in a single transaction
-            await db.commit()
-            await db.refresh(db_meeting)
+            result = self.supabase.table("meetings").update(update_data).eq("id", db_meeting["id"]).execute()
+            
+            if not result.data:
+                raise Exception("Failed to update meeting with bot_id")
+            
+            updated_meeting = result.data[0]
             
             return BotCreateResponse(
-                id=db_meeting.id,
-                meeting_url=db_meeting.meeting_url,
-                bot_id=db_meeting.bot_id,
-                status=db_meeting.status.value,
-                meeting_metadata=db_meeting.meeting_metadata,
-                created_at=db_meeting.created_at,
-                updated_at=db_meeting.updated_at
+                id=updated_meeting["id"],
+                meeting_url=updated_meeting["meeting_url"],
+                bot_id=updated_meeting["bot_id"],
+                status=updated_meeting["status"],
+                meeting_metadata=updated_meeting["meeting_metadata"],
+                created_at=datetime.fromisoformat(updated_meeting["created_at"]),
+                updated_at=datetime.fromisoformat(updated_meeting["updated_at"])
             )
             
         except Exception as e:
             logger.error(f"Failed to create bot: {e}")
-            await db.rollback()
             raise
     
-    async def poll_bot_status(self, bot_id: int, db: AsyncSession) -> StatusPollResponse:
+    async def poll_bot_status(self, bot_id: int, user_id: str) -> StatusPollResponse:
         """Poll for bot status updates"""
         try:
-            # Get meeting
-            result = await db.execute(select(Meeting).where(Meeting.id == bot_id))
-            meeting = result.scalar_one_or_none()
+            supabase = get_supabase()
             
-            if not meeting or not meeting.bot_id:
+            # Get meeting for the current user
+            result = supabase.table("meetings").select("*").eq("id", bot_id).eq("user_id", user_id).single().execute()
+            
+            if result.error:
+                if "No rows found" in str(result.error):
+                    return StatusPollResponse(
+                        status_updated=False,
+                        message="Meeting not found"
+                    )
+                raise Exception(f"Supabase error: {result.error}")
+            
+            meeting = result.data
+            
+            if not meeting.get("bot_id"):
                 return StatusPollResponse(
                     status_updated=False,
-                    message="Meeting or bot_id not found"
+                    message="Bot ID not found for meeting"
                 )
             
             # Poll Attendee API
-            status_data = await self._get_bot_status(meeting.bot_id)
+            status_data = await self._get_bot_status(meeting["bot_id"])
             
             # Map status
             attendee_state = status_data.get("state", "unknown")
@@ -95,17 +114,21 @@ class BotService:
                 )
             
             # Check if status changed
-            status_updated = new_status != meeting.status
+            status_updated = new_status != meeting["status"]
             
             if status_updated:
-                # Update meeting status
-                meeting.status = new_status
-                await db.commit()
+                # Update meeting status in Supabase
+                update_result = supabase.table("meetings").update({
+                    "status": new_status.value
+                }).eq("id", bot_id).eq("user_id", user_id).execute()
+                
+                if update_result.error:
+                    raise Exception(f"Supabase error: {update_result.error}")
                 
                 return StatusPollResponse(
                     status_updated=True,
                     new_status=new_status.value,
-                    message=f"Status updated from {meeting.status} to {new_status.value}"
+                    message=f"Status updated from {meeting['status']} to {new_status.value}"
                 )
             
             return StatusPollResponse(
@@ -192,33 +215,44 @@ class BotService:
         await self.client.aclose()
     
     @staticmethod
-    async def update_meeting_status(db: AsyncSession, meeting: Meeting, status: str, commit: bool = True):
+    async def update_meeting_status(meeting_id: int, user_id: str, status: str):
         """Update meeting status"""
-        from app.models.enums import MeetingStatus
+        from app.schemas.schemas import MeetingStatus
         
         try:
+            supabase = get_supabase()
+            
             # Convert string status to enum if needed
             if isinstance(status, str):
                 status = MeetingStatus(status.upper())
             
-            meeting.status = status
+            # Update meeting status in Supabase
+            result = supabase.table("meetings").update({
+                "status": status.value
+            }).eq("id", meeting_id).eq("user_id", user_id).execute()
             
-            # Only commit if explicitly requested (not from webhook context)
-            if commit:
-                await db.commit()
+            if result.error:
+                raise Exception(f"Supabase error: {result.error}")
             
         except Exception as e:
-            logger.error(f"Failed to update meeting {meeting.id} status to {status}: {e}")
-            if commit:
-                await db.rollback()
+            logger.error(f"Failed to update meeting {meeting_id} status to {status}: {e}")
             raise
     
     @staticmethod
-    async def get_meeting_by_bot_id(db: AsyncSession, bot_id: str) -> Optional[Meeting]:
-        """Get meeting by bot_id"""
-        from sqlalchemy import select
-        
-        result = await db.execute(
-            select(Meeting).where(Meeting.bot_id == bot_id)
-        )
-        return result.scalar_one_or_none() 
+    async def get_meeting_by_bot_id(bot_id: str, user_id: str):
+        """Get meeting by bot_id for the current user"""
+        try:
+            supabase = get_supabase()
+            
+            result = supabase.table("meetings").select("*").eq("bot_id", bot_id).eq("user_id", user_id).single().execute()
+            
+            if result.error:
+                if "No rows found" in str(result.error):
+                    return None
+                raise Exception(f"Supabase error: {result.error}")
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Failed to get meeting by bot_id {bot_id}: {e}")
+            return None 

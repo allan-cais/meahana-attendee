@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Header
+from app.core.database import get_supabase
 from app.services.webhook_delivery_service import webhook_delivery_service
+from app.services.auth_service import AuthService
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
@@ -17,11 +17,33 @@ class WebhookDeliveryResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-@router.get("/stats", response_model=WebhookDeliveryResponse)
-async def get_webhook_delivery_stats(db: AsyncSession = Depends(get_db)):
-    """Get webhook delivery statistics"""
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current user from authorization header"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    auth_service = AuthService()
+    
     try:
-        stats = await webhook_delivery_service.get_webhook_delivery_stats(db)
+        user = await auth_service.get_user(token)
+        return user
+    except Exception as e:
+        logger.error(f"Failed to get current user: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
+
+
+@router.get("/stats", response_model=WebhookDeliveryResponse)
+async def get_webhook_delivery_stats(current_user: dict = Depends(get_current_user)):
+    """Get webhook delivery statistics for the current user"""
+    try:
+        stats = await webhook_delivery_service.get_webhook_delivery_stats(current_user["id"])
         
         return WebhookDeliveryResponse(
             success=True,
@@ -40,12 +62,12 @@ async def get_webhook_delivery_stats(db: AsyncSession = Depends(get_db)):
 @router.post("/retry-failed", response_model=WebhookDeliveryResponse)
 async def retry_failed_webhooks(
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually retry failed webhook deliveries"""
+    """Manually retry failed webhook deliveries for the current user"""
     try:
-        # Run retry in background
-        background_tasks.add_task(webhook_delivery_service.retry_failed_webhooks, db)
+        # Run retry in background for the current user
+        background_tasks.add_task(webhook_delivery_service.retry_failed_webhooks, current_user["id"])
         
         return WebhookDeliveryResponse(
             success=True,
@@ -64,12 +86,12 @@ async def retry_failed_webhooks(
 @router.post("/check-critical-events", response_model=WebhookDeliveryResponse)
 async def check_critical_event_fallbacks(
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually check for missing critical events and trigger polling fallback"""
+    """Manually check for missing critical events and trigger polling fallback for the current user"""
     try:
-        # Run check in background
-        background_tasks.add_task(webhook_delivery_service.check_critical_event_fallbacks, db)
+        # Run check in background for the current user
+        background_tasks.add_task(webhook_delivery_service.check_critical_event_fallbacks, current_user["id"])
         
         return WebhookDeliveryResponse(
             success=True,
@@ -88,12 +110,12 @@ async def check_critical_event_fallbacks(
 @router.post("/proactive-check", response_model=WebhookDeliveryResponse)
 async def trigger_proactive_webhook_failure_check(
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually trigger proactive webhook failure check"""
+    """Manually trigger proactive webhook failure check for the current user"""
     try:
-        # Run proactive check in background
-        background_tasks.add_task(webhook_delivery_service._proactive_webhook_failure_check, db)
+        # Run proactive check in background for the current user
+        background_tasks.add_task(webhook_delivery_service._proactive_webhook_failure_check, current_user["id"])
         
         return WebhookDeliveryResponse(
             success=True,
@@ -110,10 +132,10 @@ async def trigger_proactive_webhook_failure_check(
 
 
 @router.get("/health", response_model=WebhookDeliveryResponse)
-async def get_webhook_delivery_health(db: AsyncSession = Depends(get_db)):
-    """Get webhook delivery health status"""
+async def get_webhook_delivery_health(current_user: dict = Depends(get_current_user)):
+    """Get webhook delivery health status for the current user"""
     try:
-        stats = await webhook_delivery_service.get_webhook_delivery_stats(db)
+        stats = await webhook_delivery_service.get_webhook_delivery_stats(current_user["id"])
         
         # Determine health status
         total_webhooks = stats.get("total_webhooks", 0)

@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", description="Environment")
     debug: bool = Field(default=False, description="Debug mode")
     
-    # Database
-    database_url: str = Field(default="postgresql+asyncpg://meahana:meahana_pass@localhost:5432/meahana_db", description="Database connection URL")
+    # Supabase Configuration
+    supabase_url: str = Field(..., description="Supabase project URL")
+    supabase_anon_key: str = Field(..., description="Supabase anonymous key")
+    supabase_service_role_key: str = Field(..., description="Supabase service role key")
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")

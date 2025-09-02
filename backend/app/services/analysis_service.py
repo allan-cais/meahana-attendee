@@ -1,41 +1,48 @@
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.models.models import Meeting, Report, TranscriptChunk
+from app.core.database import get_supabase
 from app.schemas.schemas import ReportScore
 
 logger = logging.getLogger(__name__)
 
 
 class AnalysisService:
-    async def enqueue_analysis(self, db: AsyncSession, meeting_id: int):
+    async def enqueue_analysis(self, meeting_id: int, user_id: str):
         """Enqueue analysis for a meeting (alias for trigger_analysis)"""
-        await self.trigger_analysis(meeting_id, db)
+        await self.trigger_analysis(meeting_id, user_id)
     
-    async def trigger_analysis(self, meeting_id: int, db: AsyncSession):
+    async def trigger_analysis(self, meeting_id: int, user_id: str):
         """Trigger analysis for a meeting"""
         try:
-            # Get meeting
-            result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
-            meeting = result.scalar_one_or_none()
+            supabase = get_supabase()
             
-            if not meeting:
-                raise ValueError(f"Meeting {meeting_id} not found")
+            # Get meeting for the current user
+            result = supabase.table("meetings").select("*").eq("id", meeting_id).eq("user_id", user_id).single().execute()
+            
+            if result.error:
+                if "No rows found" in str(result.error):
+                    raise ValueError(f"Meeting {meeting_id} not found")
+                raise Exception(f"Supabase error: {result.error}")
+            
+            meeting = result.data
             
             # Check if analysis already exists
-            result = await db.execute(
-                select(Report).where(Report.meeting_id == meeting_id)
-            )
-            existing_report = result.scalar_one_or_none()
+            result = supabase.table("reports").select("*").eq("meeting_id", meeting_id).eq("user_id", user_id).execute()
             
-            if existing_report:
+            if result.error:
+                raise Exception(f"Supabase error: {result.error}")
+            
+            existing_reports = result.data
+            
+            if existing_reports:
                 return
             
             # Get transcript chunks for analysis
-            result = await db.execute(
-                select(TranscriptChunk).where(TranscriptChunk.meeting_id == meeting_id).order_by(TranscriptChunk.timestamp)
-            )
-            transcript_chunks = result.scalars().all()
+            result = supabase.table("transcript_chunks").select("*").eq("meeting_id", meeting_id).eq("user_id", user_id).order("timestamp").execute()
+            
+            if result.error:
+                raise Exception(f"Supabase error: {result.error}")
+            
+            transcript_chunks = result.data
             
             if not transcript_chunks:
                 logger.warning(f"No transcript chunks found for meeting {meeting_id}")
@@ -45,23 +52,26 @@ class AnalysisService:
             scorecard = await self._generate_real_analysis(meeting, transcript_chunks)
             
             # Create report - convert ReportScore to dict for JSON storage
-            report = Report(
-                meeting_id=meeting_id,
-                score=scorecard.model_dump()  # Convert Pydantic model to dict
-            )
+            report_data = {
+                "meeting_id": meeting_id,
+                "user_id": user_id,
+                "score": scorecard.model_dump()  # Convert Pydantic model to dict
+            }
             
-            db.add(report)
-            await db.commit()
+            result = supabase.table("reports").insert(report_data).execute()
+            
+            if result.error:
+                raise Exception(f"Supabase error: {result.error}")
             
         except Exception as e:
             logger.error(f"Failed to trigger analysis for meeting {meeting_id}: {e}")
             raise
     
-    async def _generate_real_analysis(self, meeting: Meeting, transcript_chunks: list) -> ReportScore:
+    async def _generate_real_analysis(self, meeting: dict, transcript_chunks: list) -> ReportScore:
         """Generate real analysis from actual transcript content"""
         # Combine all transcript text
-        full_transcript = " ".join([chunk.text for chunk in transcript_chunks])
-        speakers = list(set([chunk.speaker for chunk in transcript_chunks if chunk.speaker]))
+        full_transcript = " ".join([chunk["text"] for chunk in transcript_chunks])
+        speakers = list(set([chunk["speaker"] for chunk in transcript_chunks if chunk.get("speaker")]))
         
         # Analyze the actual content
         analysis = await self._analyze_transcript_with_ai(full_transcript, speakers, len(transcript_chunks))

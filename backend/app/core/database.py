@@ -1,28 +1,13 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from supabase import create_client, Client
 from app.core.config import settings
+from typing import Generator
 
-# Create async engine
-engine = create_async_engine(
-    settings.database_url,
-    future=True
+# Create Supabase client
+supabase: Client = create_client(
+    settings.supabase_url,
+    settings.supabase_service_role_key
 )
 
-# Create async session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
-
-# Create base class for models
-Base = declarative_base()
-
-# Dependency to get database session
-async def get_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close() 
+# Dependency to get Supabase client
+def get_supabase() -> Client:
+    return supabase 

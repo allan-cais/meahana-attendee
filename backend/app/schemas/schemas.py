@@ -1,7 +1,14 @@
+from enum import Enum
 from pydantic import BaseModel, HttpUrl, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from app.models.enums import MeetingStatus
+
+
+class MeetingStatus(str, Enum):
+    PENDING = "PENDING"
+    STARTED = "STARTED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 # Base schemas
@@ -187,4 +194,35 @@ class MessageResponse(BaseModel):
 
 class ListResponse(BaseModel):
     items: List[Any]
-    total: int 
+    total: int
+
+
+# Authentication schemas
+class UserSignUp(BaseModel):
+    email: str
+    password: str
+
+
+class UserSignIn(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    created_at: datetime
+    user_metadata: Optional[Dict[str, Any]] = None
+
+
+class SessionInfo(BaseModel):
+    access_token: str
+    refresh_token: str
+    expires_at: Optional[datetime] = None
+
+
+class AuthResponse(BaseModel):
+    success: bool
+    message: str
+    user: Optional[UserResponse] = None
+    session: Optional[SessionInfo] = None 

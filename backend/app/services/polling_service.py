@@ -1,10 +1,8 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
-from app.models.models import Meeting, WebhookEvent
+from typing import List, Optional, Dict
+from app.core.database import get_supabase
 from app.services.bot_service import BotService
 from app.services.analysis_service import AnalysisService
 from app.services.transcript_service import TranscriptService
@@ -42,243 +40,243 @@ class PollingService:
         """Stop the polling service"""
         self.is_running = False
     
-    async def _poll_completed_meetings(self):
+    async def _poll_completed_meetings(self, user_id: str = None):
         """Poll for meetings that should be completed but haven't been processed"""
-        from app.core.database import AsyncSessionLocal
-        
-        async with AsyncSessionLocal() as db:
-            try:
-                # First check if we have missing critical events that require polling fallback
-                from app.services.webhook_delivery_service import webhook_delivery_service
-                missing_critical_events = await webhook_delivery_service.check_critical_event_fallbacks(db)
-                
-                if missing_critical_events > 0:
-                    return  # Don't do general polling if we're handling critical event fallbacks
-                
-                # Only do general polling if no critical events are missing
-                pending_meetings = await self._get_pending_meetings(db)
-                
-                if not pending_meetings:
-                    return
-                
-                for meeting in pending_meetings:
-                    try:
-                        await self._check_meeting_status(db, meeting)
-                    except Exception as e:
-                        logger.error(f"Error checking meeting {meeting.id}: {e}")
-                        continue
-                        
-            except Exception as e:
-                logger.error(f"Error in meeting status polling: {e}")
+        try:
+            # First check if we have missing critical events that require polling fallback
+            from app.services.webhook_delivery_service import webhook_delivery_service
+            await webhook_delivery_service.check_critical_event_fallbacks(user_id)
+            
+            # Only do general polling if no critical events are missing
+            pending_meetings = await self._get_pending_meetings(user_id)
+            
+            if not pending_meetings:
+                return
+            
+            for meeting in pending_meetings:
+                try:
+                    await self._check_meeting_status(meeting, user_id)
+                except Exception as e:
+                    logger.error(f"Error checking meeting {meeting['id']}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error in meeting status polling: {e}")
     
-    async def _get_pending_meetings(self, db: AsyncSession) -> List[Meeting]:
+    async def _get_pending_meetings(self, user_id: str = None) -> List[Dict]:
         """Get meetings that are in progress and might be completed"""
         try:
+            supabase = get_supabase()
+            
             # Find meetings that are in progress and haven't been updated recently
             # This helps catch meetings where webhooks failed
             cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=10)  # Check meetings older than 10 minutes
             
-            query = select(Meeting).where(
-                and_(
-                    Meeting.status.in_(["PENDING", "STARTED"]),
-                    Meeting.updated_at < cutoff_time
-                )
-            )
+            query = supabase.table("meetings").select("*").in_("status", ["PENDING", "STARTED"]).lt("updated_at", cutoff_time.isoformat())
             
-            result = await db.execute(query)
-            meetings = result.scalars().all()
+            if user_id:
+                query = query.eq("user_id", user_id)
             
-            return meetings
+            result = query.execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return []
+            
+            return result.data
             
         except Exception as e:
             logger.error(f"Error getting pending meetings: {e}")
             return []
     
-    async def _check_meeting_status(self, db: AsyncSession, meeting: Meeting):
+    async def _check_meeting_status(self, meeting: Dict, user_id: str = None):
         """Check the status of a specific meeting via Attendee API"""
         try:
-            if not meeting.bot_id:
-                logger.warning(f"Meeting {meeting.id} has no bot_id, skipping")
+            if not meeting.get("bot_id"):
+                logger.warning(f"Meeting {meeting['id']} has no bot_id, skipping status check")
                 return
             
-            # Get bot status from Attendee API
-            bot_status = await self._get_bot_status(meeting.bot_id)
+            # Use BotService to check status
+            bot_service = BotService()
+            status_response = await bot_service.poll_bot_status(meeting["id"], user_id or meeting["user_id"])
             
-            if not bot_status:
-                logger.warning(f"Could not get bot status for {meeting.bot_id}")
-                return
-            
-            current_state = bot_status.get("state")
-            
-            # Check if meeting is completed
-            if current_state == "ended":
-                await self._handle_completed_meeting(db, meeting, bot_status)
-            elif current_state in ["failed", "error"]:
-                await self._handle_failed_meeting(db, meeting, bot_status)
-            elif current_state in ["post_processing"]:
-                # Check if post-processing has been running too long
-                await self._check_post_processing_timeout(db, meeting, bot_status)
-            else:
-                pass  # Meeting still in progress
+            if status_response.status_updated:
+                logger.info(f"Meeting {meeting['id']} status updated to {status_response.new_status}")
                 
-        except Exception as e:
-            logger.error(f"Error checking meeting {meeting.id} status: {e}")
-    
-    async def _get_bot_status(self, bot_id: str) -> Optional[dict]:
-        """Get bot status from Attendee API"""
-        try:
-            headers = {
-                "Authorization": f"Token {settings.attendee_api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            url = f"{settings.attendee_api_base_url}/api/v1/bots/{bot_id}"
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    logger.warning(f"Failed to get bot status: {response.status_code} - {response.text}")
-                    return None
+                # If meeting is completed, trigger analysis
+                if status_response.new_status == "COMPLETED":
+                    await self._trigger_analysis_for_completed_meeting(meeting["id"], user_id or meeting["user_id"])
                     
         except Exception as e:
-            logger.error(f"Error getting bot status for {bot_id}: {e}")
-            return None
+            logger.error(f"Error checking meeting {meeting['id']} status: {e}")
     
-    async def _handle_completed_meeting(self, db: AsyncSession, meeting: Meeting, bot_status: dict):
-        """Handle a meeting that has been completed"""
+    async def _trigger_analysis_for_completed_meeting(self, meeting_id: int, user_id: str):
+        """Trigger analysis for a completed meeting"""
         try:
-            # Update meeting status
-            await BotService.update_meeting_status(db, meeting, "COMPLETED")
-            
-            # Check if we already have a webhook event for this completion
-            existing_webhook = await self._check_existing_webhook(db, meeting.bot_id, "post_processing_completed")
-            
-            if not existing_webhook:
-                # No webhook event found for completion, creating one manually
-                await self._create_webhook_event(db, meeting, bot_status, "post_processing_completed")
-            
-            # Process transcript and trigger analysis
-            await self._process_completed_meeting(db, meeting)
+            analysis_service = AnalysisService()
+            await analysis_service.enqueue_analysis(meeting_id, user_id)
+            logger.info(f"Analysis triggered for completed meeting {meeting_id}")
             
         except Exception as e:
-            logger.error(f"Error handling completed meeting {meeting.id}: {e}")
+            logger.error(f"Error triggering analysis for meeting {meeting_id}: {e}")
     
-    async def _handle_failed_meeting(self, db: AsyncSession, meeting: Meeting, bot_status: dict):
-        """Handle a meeting that has failed"""
+    async def manual_check_meeting(self, meeting_id: int, user_id: str) -> bool:
+        """Manually check a specific meeting for completion status"""
         try:
-            # Update meeting status
-            await BotService.update_meeting_status(db, meeting, "FAILED")
+            supabase = get_supabase()
             
-            # Create webhook event for failure
-            await self._create_webhook_event(db, meeting, bot_status, "bot.failed")
+            # Get the meeting
+            result = supabase.table("meetings").select("*").eq("id", meeting_id).eq("user_id", user_id).single().execute()
             
-        except Exception as e:
-            logger.error(f"Error handling failed meeting {meeting.id}: {e}")
-    
-    async def _check_post_processing_timeout(self, db: AsyncSession, meeting: Meeting, bot_status: dict):
-        """Check if post-processing has been running too long"""
-        try:
-            # Check if post-processing has been running for more than 30 minutes
-            post_processing_start = meeting.updated_at
-            timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
-            
-            if post_processing_start < timeout_threshold:
-                logger.warning(f"Meeting {meeting.id} post-processing timeout, checking status")
-                
-                # Force a status check
-                await self._check_meeting_status(db, meeting)
-                
-        except Exception as e:
-            logger.error(f"Error checking post-processing timeout for meeting {meeting.id}: {e}")
-    
-    async def _check_existing_webhook(self, db: AsyncSession, bot_id: str, event_type: str) -> Optional[WebhookEvent]:
-        """Check if a webhook event already exists for this bot and event type"""
-        try:
-            query = select(WebhookEvent).where(
-                and_(
-                    WebhookEvent.event_data.contains({"bot_id": bot_id}),
-                    WebhookEvent.event_type == event_type
-                )
-            )
-            
-            result = await db.execute(query)
-            return result.scalar_one_or_none()
-            
-        except Exception as e:
-            logger.error(f"Error checking existing webhook: {e}")
-            return None
-    
-    async def _create_webhook_event(self, db: AsyncSession, meeting: Meeting, bot_status: dict, event_type: str):
-        """Create a webhook event manually when webhook fails"""
-        try:
-            # Create webhook event data
-            event_data = {
-                "bot_id": meeting.bot_id,
-                "meeting_url": meeting.meeting_url,
-                "new_state": bot_status.get("state"),
-                "old_state": meeting.status,
-                "event_type": event_type,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "event_metadata": bot_status.get("metadata", {})
-            }
-            
-            webhook_event = WebhookEvent(
-                event_type=event_type,
-                event_data=event_data,
-                raw_payload={"data": event_data},
-                meeting_id=meeting.id,
-                processed="true"  # Mark as processed since we're handling it
-            )
-            
-            db.add(webhook_event)
-            await db.commit()
-            
-            # Created manual webhook event
-            
-        except Exception as e:
-            logger.error(f"Error creating webhook event: {e}")
-    
-    async def _process_completed_meeting(self, db: AsyncSession, meeting: Meeting):
-        """Process transcript and trigger analysis for completed meeting"""
-        try:
-            # Fetch transcript from Attendee API
-            transcript_service = TranscriptService()
-            transcript_fetched = await transcript_service.fetch_full_transcript(db, meeting)
-            
-            if transcript_fetched:
-                # Transcript fetched successfully
-                
-                # Trigger analysis
-                analysis_service = AnalysisService()
-                await analysis_service.enqueue_analysis(db, meeting.id)
-                
-                # Analysis enqueued
-            else:
-                logger.warning(f"Could not fetch transcript for meeting {meeting.id}")
-                
-        except Exception as e:
-            logger.error(f"Error processing completed meeting {meeting.id}: {e}")
-    
-    async def manual_check_meeting(self, meeting_id: int):
-        """Manually check a specific meeting (for testing/debugging)"""
-        from app.core.database import AsyncSessionLocal
-        
-        async with AsyncSessionLocal() as db:
-            try:
-                meeting = await db.get(Meeting, meeting_id)
-                if not meeting:
-                    logger.error(f"Meeting {meeting_id} not found")
-                    return False
-                
-                await self._check_meeting_status(db, meeting)
-                return True
-                
-            except Exception as e:
-                logger.error(f"Error in manual meeting check: {e}")
+            if result.error:
+                logger.error(f"Meeting {meeting_id} not found: {result.error}")
                 return False
+            
+            meeting = result.data
+            
+            # Check the meeting status
+            await self._check_meeting_status(meeting, user_id)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error manually checking meeting {meeting_id}: {e}")
+            return False
+    
+    async def _get_meeting_by_bot_id(self, bot_id: str, user_id: str = None) -> Optional[Dict]:
+        """Get meeting by bot_id"""
+        try:
+            supabase = get_supabase()
+            
+            query = supabase.table("meetings").select("*").eq("bot_id", bot_id)
+            
+            if user_id:
+                query = query.eq("user_id", user_id)
+            
+            result = query.single().execute()
+            
+            if result.error:
+                if "No rows found" in str(result.error):
+                    return None
+                logger.error(f"Supabase error: {result.error}")
+                return None
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting meeting by bot_id {bot_id}: {e}")
+            return None
+    
+    async def _update_meeting_status(self, meeting_id: int, user_id: str, new_status: str):
+        """Update meeting status"""
+        try:
+            supabase = get_supabase()
+            
+            result = supabase.table("meetings").update({
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", meeting_id).eq("user_id", user_id).execute()
+            
+            if result.error:
+                logger.error(f"Failed to update meeting status: {result.error}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating meeting status: {e}")
+            return False
+    
+    async def _get_webhook_events_for_meeting(self, meeting_id: int, user_id: str) -> List[Dict]:
+        """Get webhook events for a meeting"""
+        try:
+            supabase = get_supabase()
+            
+            result = supabase.table("webhook_events").select("*").eq("meeting_id", meeting_id).eq("user_id", user_id).order("created_at", desc=True).execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return []
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting webhook events for meeting {meeting_id}: {e}")
+            return []
+    
+    async def _check_webhook_completion(self, meeting: Dict, user_id: str) -> bool:
+        """Check if a meeting has received all expected webhooks"""
+        try:
+            webhook_events = await self._get_webhook_events_for_meeting(meeting["id"], user_id)
+            
+            # Check for critical webhook events
+            critical_events = ["post_processing_completed", "transcript.completed"]
+            
+            for critical_event in critical_events:
+                if not any(webhook["event_type"] == critical_event for webhook in webhook_events):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking webhook completion for meeting {meeting['id']}: {e}")
+            return False
+    
+    async def _handle_missing_webhooks(self, meeting: Dict, user_id: str):
+        """Handle meetings with missing webhooks by triggering polling fallback"""
+        try:
+            logger.warning(f"Meeting {meeting['id']} has missing webhooks, triggering polling fallback")
+            
+            # Use BotService to check status directly
+            bot_service = BotService()
+            await bot_service.poll_bot_status(meeting["id"], user_id)
+            
+        except Exception as e:
+            logger.error(f"Error handling missing webhooks for meeting {meeting['id']}: {e}")
+    
+    async def _schedule_delayed_check(self, meeting: Dict, delay: int, user_id: str):
+        """Schedule a delayed status check for a meeting"""
+        try:
+            await asyncio.sleep(delay)
+            
+            # Check if meeting still needs attention
+            current_meeting = await self._get_meeting_by_id(meeting["id"], user_id)
+            
+            if current_meeting and current_meeting["status"] not in ["COMPLETED", "FAILED"]:
+                logger.info(f"Meeting {meeting['id']} still needs attention after delay, checking status")
+                await self._check_meeting_status(current_meeting, user_id)
+                
+        except Exception as e:
+            logger.error(f"Error in delayed check for meeting {meeting['id']}: {e}")
+    
+    async def _get_meeting_by_id(self, meeting_id: int, user_id: str) -> Optional[Dict]:
+        """Get meeting by ID"""
+        try:
+            supabase = get_supabase()
+            
+            result = supabase.table("meetings").select("*").eq("id", meeting_id).eq("user_id", user_id).single().execute()
+            
+            if result.error:
+                if "No rows found" in str(result.error):
+                    return None
+                logger.error(f"Supabase error: {result.error}")
+                return None
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting meeting {meeting_id}: {e}")
+            return None
+    
+    async def _log_polling_activity(self, meeting_id: int, user_id: str, action: str, success: bool):
+        """Log polling activity for monitoring"""
+        try:
+            logger.info(f"Polling activity: Meeting {meeting_id}, User {user_id}, Action: {action}, Success: {success}")
+            
+            # TODO: Add more detailed logging if needed
+            
+        except Exception as e:
+            logger.error(f"Error logging polling activity: {e}")
 
 
 # Global instance

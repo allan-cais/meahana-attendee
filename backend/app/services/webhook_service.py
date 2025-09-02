@@ -1,7 +1,5 @@
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.models.models import Meeting, WebhookEvent, TranscriptChunk
+from app.core.database import get_supabase
 from app.schemas.schemas import WebhookPayload
 from app.core.config import settings
 from fastapi import BackgroundTasks
@@ -33,61 +31,78 @@ class WebhookService:
     @staticmethod
     async def process_webhook(
         payload: WebhookPayload, 
-        db: AsyncSession, 
         background_tasks: BackgroundTasks
     ) -> dict:
         """Process webhook payload - Production-ready version"""
         try:
-            # Start transaction
-            async with db.begin():
-                # Store webhook event
-                event_type = payload.get_event_type()
-                bot_id = payload.get_bot_id()
-                
-                webhook_event = WebhookEvent(
-                    event_type=event_type,
-                    bot_id=bot_id,
-                    event_data=payload.data,
-                    raw_payload=payload.model_dump(),
-                    meeting_id=None,
-                    processed="false"
-                )
-                
-                db.add(webhook_event)
-                await db.flush()  # Get ID without committing
-                
-                # Process webhook delivery tracking
-                from app.services.webhook_delivery_service import webhook_delivery_service
-                await webhook_delivery_service.process_webhook_delivery(webhook_event, db)
-                
-                # Link webhook to meeting
-                await WebhookService._link_webhook_to_meeting(webhook_event, payload, db)
-                
-                # Production-ready: If no meeting exists for this webhook, fail fast
-                if not webhook_event.meeting_id:
-                    logger.error(f"Webhook event {webhook_event.id} cannot be linked to any meeting. This indicates a system error.")
-                    raise ValueError(f"Webhook event {webhook_event.id} has no associated meeting. Bot creation may have failed.")
-                
-                # Handle different event types
-                await WebhookService._process_event_by_type(event_type, payload, db, background_tasks)
-                
-                # Mark webhook as processed
-                webhook_event.processed = "true"
-                webhook_event.processed_at = datetime.now(timezone.utc)
-                
-                return {"status": "processed", "event_type": event_type}
+            supabase = get_supabase()
+            
+            # Store webhook event
+            event_type = payload.get_event_type()
+            bot_id = payload.get_bot_id()
+            
+            # Find meeting by bot_id to get user_id
+            meeting = await WebhookService._find_meeting_by_bot_id(bot_id)
+            if not meeting:
+                logger.error(f"No meeting found for bot {bot_id}. Bot creation may have failed.")
+                raise ValueError(f"Webhook event has no associated meeting. Bot creation may have failed.")
+            
+            user_id = meeting["user_id"]
+            
+            webhook_event_data = {
+                "event_type": event_type,
+                "bot_id": bot_id,
+                "event_data": payload.data,
+                "raw_payload": payload.model_dump(),
+                "meeting_id": meeting["id"],
+                "user_id": user_id,
+                "processed": "false"
+            }
+            
+            # Insert webhook event
+            result = supabase.table("webhook_events").insert(webhook_event_data).execute()
+            if result.error:
+                raise Exception(f"Supabase error: {result.error}")
+            
+            webhook_event_id = result.data[0]["id"]
+            
+            # Process webhook delivery tracking
+            from app.services.webhook_delivery_service import webhook_delivery_service
+            await webhook_delivery_service.process_webhook_delivery(webhook_event_id, user_id)
+            
+            # Handle different event types
+            await WebhookService._process_event_by_type(event_type, payload, user_id, background_tasks)
+            
+            # Mark webhook as processed
+            update_result = supabase.table("webhook_events").update({
+                "processed": "true",
+                "processed_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", webhook_event_id).execute()
+            
+            if update_result.error:
+                logger.error(f"Failed to mark webhook as processed: {update_result.error}")
+            
+            return {"status": "processed", "event_type": event_type}
                 
         except Exception as e:
             logger.error(f"Error processing webhook event {event_type}: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             
-            # Mark webhook as failed - don't commit here since we're in a transaction
-            if 'webhook_event' in locals():
-                webhook_event.processed = "false"
-                webhook_event.delivery_status = "failed"
-                webhook_event.delivery_error = str(e)
-                # Don't commit here - the transaction will be rolled back automatically
+            # Mark webhook as failed if we have an ID
+            if 'webhook_event_id' in locals():
+                try:
+                    supabase = get_supabase()
+                    update_result = supabase.table("webhook_events").update({
+                        "processed": "false",
+                        "delivery_status": "failed",
+                        "delivery_error": str(e)
+                    }).eq("id", webhook_event_id).execute()
+                    
+                    if update_result.error:
+                        logger.error(f"Failed to mark webhook as failed: {update_result.error}")
+                except Exception as update_error:
+                    logger.error(f"Failed to update webhook status: {update_error}")
             
             raise  # Re-raise to trigger the 500 response
 
@@ -104,67 +119,64 @@ class WebhookService:
         return False
 
     @staticmethod
-    async def _link_webhook_to_meeting(webhook_event, payload: WebhookPayload, db: AsyncSession):
-        """Link webhook event to a meeting for proper cascade deletion"""
-        from app.services.bot_service import BotService
-        
-        if webhook_event.meeting_id:
-            # Already linked
-            return
-        
-        # Production-ready: Find meeting by bot_id or fail
-        bot_id = payload.get_bot_id()
-        if not bot_id:
-            logger.error("Webhook has no bot_id. Cannot link to meeting.")
-            return
-        
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
-        if meeting:
-            webhook_event.meeting_id = meeting.id
-            # Don't commit here - let the main transaction handle it
-        else:
-            logger.error(f"No meeting found for bot {bot_id}. Bot creation may have failed.")
-            # Don't create meetings automatically - this indicates a system error
-
-
+    async def _find_meeting_by_bot_id(bot_id: str):
+        """Find meeting by bot_id using Supabase"""
+        try:
+            supabase = get_supabase()
+            
+            # Search for meeting with this bot_id
+            result = supabase.table("meetings").select("*").eq("bot_id", bot_id).execute()
+            
+            if result.error:
+                logger.error(f"Supabase error finding meeting: {result.error}")
+                return None
+            
+            if not result.data:
+                return None
+            
+            return result.data[0]
+            
+        except Exception as e:
+            logger.error(f"Error finding meeting by bot_id {bot_id}: {e}")
+            return None
 
     @staticmethod
     async def _process_event_by_type(
         event_type: str, 
         payload: WebhookPayload, 
-        db: AsyncSession, 
+        user_id: str,
         background_tasks: BackgroundTasks
     ):
         """Route webhook events to appropriate handlers based on event type"""
         from app.services.bot_service import BotService
         
         if event_type in ["bot.state_change", "bot.join_requested", "bot.joining", "bot.joined"]:
-            await WebhookService._handle_bot_state_change(payload, db, background_tasks)
+            await WebhookService._handle_bot_state_change(payload, user_id, background_tasks)
         elif event_type in ["bot.recording", "bot.started_recording"]:
-            await WebhookService._handle_bot_recording(payload, db)
+            await WebhookService._handle_bot_recording(payload, user_id)
         elif event_type in ["bot.left", "bot.completed"]:
-            await WebhookService._handle_bot_completed(payload, db, background_tasks)
+            await WebhookService._handle_bot_completed(payload, user_id, background_tasks)
         elif event_type in ["bot.failed"]:
-            await WebhookService._handle_bot_failed(payload, db)
+            await WebhookService._handle_bot_failed(payload, user_id)
         elif event_type in ["transcript.update", "transcript.chunk"]:
-            await WebhookService._handle_transcript_chunk(payload, db)
+            await WebhookService._handle_transcript_chunk(payload, user_id)
         elif event_type in ["transcript.completed"]:
-            await WebhookService._handle_transcript_completed(payload, db, background_tasks)
+            await WebhookService._handle_transcript_completed(payload, user_id, background_tasks)
         elif event_type in ["chat_messages.update"]:
-            await WebhookService._handle_chat_message(payload, db)
+            await WebhookService._handle_chat_message(payload, user_id)
         elif event_type in ["participant_events.join_leave"]:
-            await WebhookService._handle_participant_event(payload, db)
+            await WebhookService._handle_participant_event(payload, user_id)
         elif event_type == "post_processing_completed":
-            await WebhookService._handle_post_processing_completed(payload, db, background_tasks)
+            await WebhookService._handle_post_processing_completed(payload, user_id, background_tasks)
         elif event_type == "unknown" and WebhookService._has_transcript_data(payload):
-            await WebhookService._handle_transcript_chunk(payload, db)
+            await WebhookService._handle_transcript_chunk(payload, user_id)
         else:
             logger.warning(f"Unhandled webhook event: {event_type}")
 
     @staticmethod
     async def _handle_bot_state_change(
         payload: WebhookPayload, 
-        db: AsyncSession, 
+        user_id: str,
         background_tasks: BackgroundTasks
     ):
         """Handle bot state change events according to Attendee API specification"""
@@ -181,43 +193,44 @@ class WebhookService:
         
         if new_state == "ended" and event_type == "post_processing_completed":
             # Bot has completed post-processing and meeting is ended
-            meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+            meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
             if meeting:
                 # Update meeting status to completed
-                await BotService.update_meeting_status(db, meeting, "completed")
+                await BotService.update_meeting_status(meeting["id"], user_id, "completed")
                 
                 # Trigger analysis in background
                 background_tasks.add_task(
                     WebhookService._fetch_transcript_and_analyze,
-                    meeting.id,
-                    bot_id
+                    meeting["id"],
+                    bot_id,
+                    user_id
                 )
         elif new_state in ["failed", "error"]:
             # Bot failed
-            meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+            meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
             if meeting:
-                await BotService.update_meeting_status(db, meeting, "failed")
+                await BotService.update_meeting_status(meeting["id"], user_id, "failed")
         elif new_state in ["staged", "join_requested", "joining", "joined_meeting", "joined_recording", "recording_permission_granted"]:
             # Bot is joining or in meeting
-            meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
-            if meeting and meeting.status != "started":
-                await BotService.update_meeting_status(db, meeting, "started")
+            meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
+            if meeting and meeting["status"] != "started":
+                await BotService.update_meeting_status(meeting["id"], user_id, "started")
 
     @staticmethod
-    async def _handle_bot_recording(payload: WebhookPayload, db: AsyncSession):
+    async def _handle_bot_recording(payload: WebhookPayload, user_id: str):
         """Handle bot recording events"""
         from app.services.bot_service import BotService
         
         bot_id = payload.get_bot_id()
         
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         if meeting:
-            await BotService.update_meeting_status(db, meeting, "started")
+            await BotService.update_meeting_status(meeting["id"], user_id, "started")
 
     @staticmethod
     async def _handle_bot_completed(
         payload: WebhookPayload, 
-        db: AsyncSession, 
+        user_id: str,
         background_tasks: BackgroundTasks
     ):
         """Handle bot completion events"""
@@ -225,32 +238,33 @@ class WebhookService:
         
         bot_id = payload.get_bot_id()
         
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         if meeting:
-            await BotService.update_meeting_status(db, meeting, "completed")
+            await BotService.update_meeting_status(meeting["id"], user_id, "completed")
             
             # Trigger transcript fetch and analysis in background
             background_tasks.add_task(
                 WebhookService._fetch_transcript_and_analyze,
-                meeting.id,
-                bot_id
+                meeting["id"],
+                bot_id,
+                user_id
             )
         else:
             logger.warning(f"No meeting found for completed bot {bot_id}")
 
     @staticmethod
-    async def _handle_bot_failed(payload: WebhookPayload, db: AsyncSession):
+    async def _handle_bot_failed(payload: WebhookPayload, user_id: str):
         """Handle bot failure events"""
         from app.services.bot_service import BotService
         
         bot_id = payload.get_bot_id()
         
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         if meeting:
-            await BotService.update_meeting_status(db, meeting, "failed")
+            await BotService.update_meeting_status(meeting["id"], user_id, "failed")
 
     @staticmethod
-    async def _handle_transcript_chunk(payload: WebhookPayload, db: AsyncSession):
+    async def _handle_transcript_chunk(payload: WebhookPayload, user_id: str):
         """Handle real-time transcript chunks"""
         from app.services.bot_service import BotService
         
@@ -258,7 +272,7 @@ class WebhookService:
         bot_id = payload.get_bot_id()
         
         # Find meeting using BotService
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         
         if not meeting:
             logger.warning(f"Could not find meeting for transcript webhook")
@@ -288,22 +302,26 @@ class WebhookService:
             logger.warning(f"Failed to parse timestamp {timestamp_ms} or {timestamp_str}: {e}")
             timestamp = datetime.now(timezone.utc)
         
-        # Store transcript chunk
-        chunk = TranscriptChunk(
-            meeting_id=meeting.id,
-            speaker=speaker,
-            text=text,
-            timestamp=timestamp,
-            confidence=confidence
-        )
+        # Store transcript chunk in Supabase
+        chunk_data = {
+            "meeting_id": meeting["id"],
+            "user_id": user_id,
+            "speaker": speaker,
+            "text": text,
+            "timestamp": timestamp.isoformat(),
+            "confidence": confidence
+        }
         
-        db.add(chunk)
-        # Don't commit here - let the main transaction handle it
+        supabase = get_supabase()
+        result = supabase.table("transcript_chunks").insert(chunk_data).execute()
+        
+        if result.error:
+            logger.error(f"Failed to insert transcript chunk: {result.error}")
 
     @staticmethod
     async def _handle_transcript_completed(
         payload: WebhookPayload, 
-        db: AsyncSession, 
+        user_id: str,
         background_tasks: BackgroundTasks
     ):
         """Handle transcript completion events"""
@@ -311,23 +329,24 @@ class WebhookService:
         
         bot_id = payload.get_bot_id()
         
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         if meeting:
             # Trigger analysis in background
             background_tasks.add_task(
                 WebhookService._fetch_transcript_and_analyze,
-                meeting.id,
-                bot_id
+                meeting["id"],
+                bot_id,
+                user_id
             )
 
     @staticmethod
-    async def _handle_chat_message(payload: WebhookPayload, db: AsyncSession):
+    async def _handle_chat_message(payload: WebhookPayload, user_id: str):
         """Handle chat message events"""
         bot_id = payload.get_bot_id()
         # TODO: Implement chat message storage if needed
 
     @staticmethod
-    async def _handle_participant_event(payload: WebhookPayload, db: AsyncSession):
+    async def _handle_participant_event(payload: WebhookPayload, user_id: str):
         """Handle participant join/leave events"""
         bot_id = payload.get_bot_id()
         data = payload.data
@@ -338,7 +357,7 @@ class WebhookService:
     @staticmethod
     async def _handle_post_processing_completed(
         payload: WebhookPayload, 
-        db: AsyncSession, 
+        user_id: str,
         background_tasks: BackgroundTasks
     ):
         """Handle post-processing completed events"""
@@ -350,43 +369,35 @@ class WebhookService:
             raise ValueError("Post-processing completed webhook missing bot_id")
         
         # Production-ready: Find meeting by bot_id or fail
-        meeting = await BotService.get_meeting_by_bot_id(db, bot_id)
+        meeting = await BotService.get_meeting_by_bot_id(bot_id, user_id)
         if not meeting:
             logger.error(f"No meeting found for bot {bot_id}. Bot creation may have failed.")
             raise ValueError(f"Meeting not found for bot {bot_id}")
         
-        # Update meeting status to completed (don't commit - let main transaction handle it)
-        await BotService.update_meeting_status(db, meeting, "completed", commit=False)
+        # Update meeting status to completed
+        await BotService.update_meeting_status(meeting["id"], user_id, "completed")
         
         # Trigger analysis in background
         background_tasks.add_task(
             WebhookService._fetch_transcript_and_analyze,
-            meeting.id,
-            bot_id
+            meeting["id"],
+            bot_id,
+            user_id
         )
 
     @staticmethod
-    async def _fetch_transcript_and_analyze(meeting_id: int, bot_id: str):
+    async def _fetch_transcript_and_analyze(meeting_id: int, bot_id: str, user_id: str):
         """Background task to fetch transcript and trigger analysis"""
-        from app.core.database import AsyncSessionLocal
-        from app.services.analysis_service import AnalysisService
-        
-        async with AsyncSessionLocal() as db:
-            try:
-                # Get meeting
-                meeting = await db.get(Meeting, meeting_id)
-                if not meeting:
-                    logger.error(f"Meeting {meeting_id} not found in background task")
-                    return
-                
-                # TODO: Fetch full transcript from Attendee API if needed
-                # For now, we rely on real-time transcript chunks
-                
-                # Trigger analysis
-                analysis_service = AnalysisService()
-                await analysis_service.enqueue_analysis(db, meeting_id)
-                
-            except Exception as e:
-                logger.error(f"Error in background transcript fetch and analysis: {e}")
-                import traceback
-                logger.error(f"Background task traceback: {traceback.format_exc()}") 
+        try:
+            # TODO: Fetch full transcript from Attendee API if needed
+            # For now, we rely on real-time transcript chunks
+            
+            # Trigger analysis
+            from app.services.analysis_service import AnalysisService
+            analysis_service = AnalysisService()
+            await analysis_service.enqueue_analysis(meeting_id, user_id)
+            
+        except Exception as e:
+            logger.error(f"Error in background transcript fetch and analysis: {e}")
+            import traceback
+            logger.error(f"Background task traceback: {traceback.format_exc()}") 

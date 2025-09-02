@@ -1,6 +1,5 @@
-# IMPORTANT: This app uses your LOCAL PostgreSQL database, NOT Docker
-# Make sure your local PostgreSQL is running on localhost:5432
-# The backend container connects to host.docker.internal:5432
+# IMPORTANT: This app uses Supabase database, NOT local PostgreSQL
+# Make sure your Supabase DATABASE_URL is set in backend/.env
 
 services:
 
@@ -23,7 +22,9 @@ services:
     depends_on:
       - redis
     environment:
-      - database_url=postgresql+asyncpg://meahana:meahana_pass@host.docker.internal:5432/meahana_db
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - redis_url=redis://redis:6379/0
       - ATTENDEE_API_KEY=${ATTENDEE_API_KEY}
       - ATTENDEE_API_BASE_URL=${ATTENDEE_API_BASE_URL:-https://app.attendee.dev}
@@ -35,9 +36,7 @@ services:
     restart: unless-stopped
     command: >
       sh -c "
-        echo 'Waiting for database...' &&
-        sleep 5 &&
-        alembic upgrade head &&
+        echo 'Starting backend...' &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000
       "
     networks:

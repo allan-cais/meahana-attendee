@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Header
+from app.core.database import get_supabase
 from app.services.polling_service import polling_service
+from app.services.auth_service import AuthService
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
@@ -19,6 +19,28 @@ class PollingResponse(BaseModel):
 
 class ManualCheckRequest(BaseModel):
     meeting_id: int
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current user from authorization header"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    auth_service = AuthService()
+    
+    try:
+        user = await auth_service.get_user(token)
+        return user
+    except Exception as e:
+        logger.error(f"Failed to get current user: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
 
 
 @router.post("/start", response_model=PollingResponse)
@@ -99,11 +121,23 @@ async def get_polling_status():
 @router.post("/check-meeting", response_model=PollingResponse)
 async def manually_check_meeting(
     request: ManualCheckRequest,
-    db: AsyncSession = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Manually check a specific meeting for completion status"""
+    """Manually check a specific meeting for completion status for the current user"""
     try:
-        success = await polling_service.manual_check_meeting(request.meeting_id)
+        # Verify the meeting belongs to the current user
+        supabase = get_supabase()
+        result = supabase.table("meetings").select("id").eq("id", request.meeting_id).eq("user_id", current_user["id"]).single().execute()
+        
+        if result.error:
+            if "No rows found" in str(result.error):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Meeting not found"
+                )
+            raise Exception(f"Supabase error: {result.error}")
+        
+        success = await polling_service.manual_check_meeting(request.meeting_id, current_user["id"])
         
         if success:
             return PollingResponse(
@@ -118,6 +152,8 @@ async def manually_check_meeting(
                 data={"meeting_id": request.meeting_id, "status": "failed"}
             )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error manually checking meeting {request.meeting_id}: {e}")
         raise HTTPException(
@@ -127,11 +163,14 @@ async def manually_check_meeting(
 
 
 @router.post("/check-all-pending", response_model=PollingResponse)
-async def check_all_pending_meetings(background_tasks: BackgroundTasks):
-    """Manually trigger a check of all pending meetings"""
+async def check_all_pending_meetings(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Manually trigger a check of all pending meetings for the current user"""
     try:
-        # Run the polling check in background
-        background_tasks.add_task(polling_service._poll_completed_meetings)
+        # Run the polling check in background for the current user
+        background_tasks.add_task(polling_service._poll_completed_meetings, current_user["id"])
         
         return PollingResponse(
             success=True,

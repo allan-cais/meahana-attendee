@@ -2,9 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, update
-from app.models.models import WebhookEvent, Meeting
+from app.core.database import get_supabase
 from app.services.polling_service import polling_service
 from app.core.config import settings
 import json
@@ -41,46 +39,48 @@ class WebhookDeliveryService:
                 logger.error(f"Error in proactive webhook failure check: {e}")
                 await asyncio.sleep(30)  # Wait 30 seconds before retrying
     
-    async def _proactive_webhook_failure_check(self):
+    async def _proactive_webhook_failure_check(self, user_id: str = None):
         """Proactively check for webhook failures on Attendee's end"""
-        from app.core.database import AsyncSessionLocal
-        
-        async with AsyncSessionLocal() as db:
-            try:
-                # Find meetings that might have missed webhooks
-                suspicious_meetings = await self._find_suspicious_meetings(db)
+        try:
+            # Find meetings that might have missed webhooks
+            suspicious_meetings = await self._find_suspicious_meetings(user_id)
+            
+            if not suspicious_meetings:
+                return
+            
+            # Found meetings with potential webhook failures
+            
+            for meeting in suspicious_meetings:
+                await self._investigate_meeting_webhook_status(meeting, user_id)
                 
-                if not suspicious_meetings:
-                    return
-                
-                # Found meetings with potential webhook failures
-                
-                for meeting in suspicious_meetings:
-                    await self._investigate_meeting_webhook_status(meeting, db)
-                    
-            except Exception as e:
-                logger.error(f"Error in proactive webhook failure check: {e}")
+        except Exception as e:
+            logger.error(f"Error in proactive webhook failure check: {e}")
     
-    async def _find_suspicious_meetings(self, db: AsyncSession) -> List[Meeting]:
+    async def _find_suspicious_meetings(self, user_id: str = None) -> List[Dict]:
         """Find meetings that might have missed webhooks"""
         try:
+            supabase = get_supabase()
+            
             # Find meetings that haven't been updated recently
             timeout_threshold = datetime.now(timezone.utc) - timedelta(seconds=self.meeting_timeout_threshold)
             
-            query = select(Meeting).where(
-                and_(
-                    Meeting.status.in_(["STARTED", "PENDING"]),
-                    Meeting.updated_at < timeout_threshold
-                )
-            )
+            query = supabase.table("meetings").select("*").in_("status", ["STARTED", "PENDING"]).lt("updated_at", timeout_threshold.isoformat())
             
-            result = await db.execute(query)
-            meetings = result.scalars().all()
+            if user_id:
+                query = query.eq("user_id", user_id)
+            
+            result = query.execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return []
+            
+            meetings = result.data
             
             suspicious_meetings = []
             
             for meeting in meetings:
-                if await self._is_meeting_suspicious(meeting, db):
+                if await self._is_meeting_suspicious(meeting, user_id):
                     suspicious_meetings.append(meeting)
             
             return suspicious_meetings
@@ -89,421 +89,258 @@ class WebhookDeliveryService:
             logger.error(f"Error finding suspicious meetings: {e}")
             return []
     
-    async def _is_meeting_suspicious(self, meeting: Meeting, db: AsyncSession) -> bool:
+    async def _is_meeting_suspicious(self, meeting: Dict, user_id: str = None) -> bool:
         """Check if a meeting is suspicious (missing expected webhooks)"""
         try:
             # Get recent webhook events for this meeting/bot
-            recent_webhooks = await self._get_recent_webhook_events(meeting, db)
+            recent_webhooks = await self._get_recent_webhook_events(meeting, user_id)
             
             # Check if we have the expected webhook pattern for the current status
-            expected_events = self.expected_webhook_patterns.get(meeting.status, [])
+            expected_events = self.expected_webhook_patterns.get(meeting["status"], [])
             
-            if not expected_events:
-                return False
-            
-            # Check if we're missing expected webhooks
-            missing_events = []
+            # Check if we have all expected events
             for expected_event in expected_events:
-                if not any(self._webhook_matches_event(webhook, expected_event) for webhook in recent_webhooks):
-                    missing_events.append(expected_event)
-            
-            if missing_events:
-                logger.warning(f"Meeting {meeting.id} missing expected webhooks: {missing_events}")
-                return True
+                if not any(webhook["event_type"] == expected_event for webhook in recent_webhooks):
+                    return True
             
             return False
             
         except Exception as e:
-            logger.error(f"Error checking if meeting {meeting.id} is suspicious: {e}")
+            logger.error(f"Error checking if meeting is suspicious: {e}")
             return False
     
-    async def _get_recent_webhook_events(self, meeting: Meeting, db: AsyncSession) -> List[WebhookEvent]:
+    async def _get_recent_webhook_events(self, meeting: Dict, user_id: str = None) -> List[Dict]:
         """Get recent webhook events for a meeting"""
         try:
-            # Look for webhooks in the last 15 minutes
-            recent_threshold = datetime.now(timezone.utc) - timedelta(minutes=15)
+            supabase = get_supabase()
             
-            query = select(WebhookEvent).where(
-                and_(
-                    WebhookEvent.bot_id == meeting.bot_id,
-                    WebhookEvent.created_at > recent_threshold
-                )
-            ).order_by(WebhookEvent.created_at.desc())
+            # Get webhooks from the last hour
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
             
-            result = await db.execute(query)
-            return result.scalars().all()
+            query = supabase.table("webhook_events").select("*").eq("meeting_id", meeting["id"]).gte("created_at", one_hour_ago.isoformat())
+            
+            if user_id:
+                query = query.eq("user_id", user_id)
+            
+            result = query.execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return []
+            
+            return result.data
             
         except Exception as e:
-            logger.error(f"Error getting recent webhook events for meeting {meeting.id}: {e}")
+            logger.error(f"Error getting recent webhook events: {e}")
             return []
     
-    def _webhook_matches_event(self, webhook: WebhookEvent, expected_event: str) -> bool:
-        """Check if a webhook matches an expected event type"""
+    async def _investigate_meeting_webhook_status(self, meeting: Dict, user_id: str = None):
+        """Investigate webhook status for a suspicious meeting"""
         try:
-            event_data = webhook.event_data
-            if isinstance(event_data, dict):
-                webhook_event_type = event_data.get("event_type")
-                return webhook_event_type == expected_event
-            return False
-        except Exception as e:
-            logger.error(f"Error checking webhook event match: {e}")
-            return False
-    
-    async def _investigate_meeting_webhook_status(self, meeting: Meeting, db: AsyncSession):
-        """Investigate a meeting's webhook status and trigger fallback if needed"""
-        try:
-            # Check if we should trigger immediate fallback
-            if await self._should_trigger_immediate_fallback(meeting, db):
-                logger.warning(f"Meeting {meeting.id} triggering immediate fallback due to webhook failure")
-                await self._trigger_polling_fallback(meeting, db)
-            else:
-                # Schedule a delayed fallback check
-                await self._schedule_delayed_fallback_check(meeting, db)
+            # Check if we should trigger polling fallback
+            if await self._should_trigger_polling_fallback(meeting, user_id):
+                logger.info(f"Triggering polling fallback for meeting {meeting['id']}")
+                await self._trigger_polling_fallback(meeting, user_id)
                 
         except Exception as e:
-            logger.error(f"Error investigating meeting {meeting.id} webhook status: {e}")
+            logger.error(f"Error investigating meeting webhook status: {e}")
     
-    async def _should_trigger_immediate_fallback(self, meeting: Meeting, db: AsyncSession) -> bool:
-        """Check if we should trigger immediate fallback for a meeting"""
+    async def _should_trigger_polling_fallback(self, meeting: Dict, user_id: str = None) -> bool:
+        """Determine if we should trigger polling fallback"""
         try:
-            # Check if meeting has been stuck for a very long time
-            very_long_threshold = datetime.now(timezone.utc) - timedelta(minutes=30)
+            # Check if meeting has been in current status for too long
+            status_duration = datetime.now(timezone.utc) - datetime.fromisoformat(meeting["updated_at"].replace('Z', '+00:00'))
             
-            if meeting.updated_at < very_long_threshold:
-                logger.warning(f"Meeting {meeting.id} stuck for over 30 minutes, immediate fallback")
-                return True
-            
-            # Check if we have no webhooks at all for this meeting
-            webhook_count = await self._get_webhook_count_for_meeting(meeting, db)
-            
-            if webhook_count == 0:
-                logger.warning(f"Meeting {meeting.id} has no webhooks at all, immediate fallback")
+            if status_duration.total_seconds() > self.fallback_timeout:
                 return True
             
             return False
             
         except Exception as e:
-            logger.error(f"Error checking immediate fallback for meeting {meeting.id}: {e}")
+            logger.error(f"Error checking if should trigger polling fallback: {e}")
             return False
     
-    async def _get_webhook_count_for_meeting(self, meeting: Meeting, db: AsyncSession) -> int:
-        """Get the total webhook count for a meeting"""
-        try:
-            query = select(WebhookEvent).where(WebhookEvent.bot_id == meeting.bot_id)
-            result = await db.execute(query)
-            return len(result.scalars().all())
-        except Exception as e:
-            logger.error(f"Error getting webhook count for meeting {meeting.id}: {e}")
-            return 0
-    
-    async def _schedule_delayed_fallback_check(self, meeting: Meeting, db: AsyncSession):
-        """Schedule a delayed fallback check for a meeting"""
-        try:
-            # Schedule a check after a shorter delay
-            delay = min(self.fallback_timeout // 2, 120)  # Max 2 minutes
-            
-            asyncio.create_task(
-                self._delayed_fallback_check(meeting, delay, db)
-            )
-            
-            # Scheduled delayed fallback check
-            
-        except Exception as e:
-            logger.error(f"Error scheduling delayed fallback for meeting {meeting.id}: {e}")
-    
-    async def _delayed_fallback_check(self, meeting: Meeting, delay: int, db: AsyncSession):
-        """Perform a delayed fallback check"""
-        try:
-            await asyncio.sleep(delay)
-            
-            # Check if the meeting still needs fallback
-            current_meeting = await db.get(Meeting, meeting.id)
-            if current_meeting and current_meeting.status not in ["COMPLETED", "FAILED"]:
-                logger.warning(f"Meeting {meeting.id} still needs fallback after delay, triggering polling")
-                await self._trigger_polling_fallback(current_meeting, db)
-                
-        except Exception as e:
-            logger.error(f"Error in delayed fallback check for meeting {meeting.id}: {e}")
-    
-    async def process_webhook_delivery(
-        self, 
-        webhook_event: WebhookEvent, 
-        db: AsyncSession
-    ) -> bool:
-        """Process webhook delivery and track status"""
-        try:
-            # Mark as delivered
-            webhook_event.delivery_status = "delivered"
-            webhook_event.processed_at = datetime.now(timezone.utc)
-            # Don't commit here - let the calling transaction handle it
-            
-            # Check if this is a critical event that should trigger fallback monitoring
-            if self._is_critical_event(webhook_event):
-                await self._schedule_fallback_monitoring(webhook_event, db)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Error processing webhook delivery {webhook_event.id}: {e}")
-            await self._mark_delivery_failed(webhook_event, str(e), db)
-            return False
-    
-    async def retry_failed_webhooks(self, db: AsyncSession) -> int:
-        """Retry failed webhook deliveries"""
-        try:
-            # Find webhooks that need retrying
-            failed_webhooks = await self._get_failed_webhooks(db)
-            
-            if not failed_webhooks:
-                return 0
-            
-            retry_count = 0
-            
-            for webhook in failed_webhooks:
-                if await self._should_retry_webhook(webhook):
-                    if await self._retry_webhook_delivery(webhook, db):
-                        retry_count += 1
-                else:
-                    # Mark as permanently failed
-                    await self._mark_permanently_failed(webhook, db)
-            
-            return retry_count
-            
-        except Exception as e:
-            logger.error(f"❌ Error in webhook retry process: {e}")
-            return 0
-    
-    async def check_critical_event_fallbacks(self, db: AsyncSession) -> int:
-        """Check if critical events are missing and trigger polling fallback"""
-        try:
-            # Find meetings that should have received critical events but haven't
-            missing_critical_events = await self._find_missing_critical_events(db)
-            
-            if not missing_critical_events:
-                return 0
-            
-            # Found meetings missing critical events, triggering polling fallback
-            
-            for meeting in missing_critical_events:
-                await self._trigger_polling_fallback(meeting, db)
-            
-            return len(missing_critical_events)
-            
-        except Exception as e:
-            logger.error(f"❌ Error checking critical event fallbacks: {e}")
-            return 0
-    
-    def _is_critical_event(self, webhook_event: WebhookEvent) -> bool:
-        """Check if a webhook event is critical for meeting completion"""
-        try:
-            event_data = webhook_event.event_data
-            if isinstance(event_data, dict):
-                event_type = event_data.get("event_type")
-                new_state = event_data.get("new_state")
-                return (event_type in self.critical_events and 
-                       new_state == "ended")
-            return False
-        except Exception as e:
-            logger.error(f"Error checking if event is critical: {e}")
-            return False
-    
-    async def _schedule_fallback_monitoring(
-        self, 
-        webhook_event: WebhookEvent, 
-        db: AsyncSession
-    ):
-        """Schedule fallback monitoring for critical events"""
-        try:
-            # Schedule a check after the fallback timeout
-            asyncio.create_task(
-                self._check_critical_event_completion(webhook_event, db)
-            )
-            # Scheduled fallback monitoring
-            
-        except Exception as e:
-            logger.error(f"Error scheduling fallback monitoring: {e}")
-    
-    async def _check_critical_event_completion(
-        self, 
-        webhook_event: WebhookEvent, 
-        db: AsyncSession
-    ):
-        """Check if critical event was properly processed"""
-        try:
-            # Wait for the fallback timeout
-            await asyncio.sleep(self.fallback_timeout)
-            
-            # Check if the meeting was properly completed
-            if webhook_event.meeting_id:
-                meeting = await db.get(Meeting, webhook_event.meeting_id)
-                if meeting and meeting.status != "COMPLETED":
-                    logger.warning(f"Critical event {webhook_event.id} not properly processed, triggering polling fallback")
-                    await self._trigger_polling_fallback(meeting, db)
-                    
-        except Exception as e:
-            logger.error(f"Error in critical event completion check: {e}")
-    
-    async def _trigger_polling_fallback(self, meeting: Meeting, db: AsyncSession):
+    async def _trigger_polling_fallback(self, meeting: Dict, user_id: str = None):
         """Trigger polling fallback for a meeting"""
         try:
-            # Use the polling service to check meeting status
-            await polling_service.manual_check_meeting(meeting.id)
+            # Use polling service to check meeting status
+            if user_id:
+                await polling_service.manual_check_meeting(meeting["id"], user_id)
+            else:
+                # For system-wide checks, we need to find the user_id
+                supabase = get_supabase()
+                result = supabase.table("meetings").select("user_id").eq("id", meeting["id"]).single().execute()
+                
+                if result.error:
+                    logger.error(f"Supabase error: {result.error}")
+                    return
+                
+                user_id = result.data["user_id"]
+                await polling_service.manual_check_meeting(meeting["id"], user_id)
+                
+        except Exception as e:
+            logger.error(f"Error triggering polling fallback: {e}")
+    
+    async def process_webhook_delivery(self, webhook_event_id: int, user_id: str):
+        """Process webhook delivery tracking"""
+        try:
+            supabase = get_supabase()
+            
+            # Update webhook event with delivery status
+            update_result = supabase.table("webhook_events").update({
+                "delivery_status": "delivered",
+                "delivered_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", webhook_event_id).eq("user_id", user_id).execute()
+            
+            if update_result.error:
+                logger.error(f"Failed to update webhook delivery status: {update_result.error}")
+                
+        except Exception as e:
+            logger.error(f"Error processing webhook delivery: {e}")
+    
+    async def retry_failed_webhooks(self, user_id: str = None):
+        """Retry failed webhook deliveries"""
+        try:
+            supabase = get_supabase()
+            
+            # Find failed webhooks
+            query = supabase.table("webhook_events").select("*").eq("delivery_status", "failed")
+            
+            if user_id:
+                query = query.eq("user_id", user_id)
+            
+            result = query.execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return
+            
+            failed_webhooks = result.data
+            
+            for webhook in failed_webhooks:
+                await self._retry_webhook_delivery(webhook, user_id)
+                
+        except Exception as e:
+            logger.error(f"Error retrying failed webhooks: {e}")
+    
+    async def _retry_webhook_delivery(self, webhook: Dict, user_id: str = None):
+        """Retry delivery of a failed webhook"""
+        try:
+            supabase = get_supabase()
+            
+            # Reset status for retry
+            update_result = supabase.table("webhook_events").update({
+                "delivery_status": "pending",
+                "delivery_error": None,
+                "retry_count": (webhook.get("retry_count", 0) + 1)
+            }).eq("id", webhook["id"])
+            
+            if user_id:
+                update_result = update_result.eq("user_id", user_id)
+            
+            result = update_result.execute()
+            
+            if result.error:
+                logger.error(f"Failed to update webhook for retry: {result.error}")
+                return
+            
+            # TODO: Implement actual webhook retry logic
+            logger.info(f"Webhook {webhook['id']} marked for retry")
             
         except Exception as e:
-            logger.error(f"Error triggering polling fallback for meeting {meeting.id}: {e}")
+            logger.error(f"Error retrying webhook delivery: {e}")
     
-    async def _get_failed_webhooks(self, db: AsyncSession) -> List[WebhookEvent]:
-        """Get webhooks that have failed delivery"""
+    async def check_critical_event_fallbacks(self, user_id: str = None):
+        """Check for missing critical events and trigger polling fallback"""
         try:
-            query = select(WebhookEvent).where(
-                and_(
-                    WebhookEvent.delivery_status.in_(["failed", "retrying"]),
-                    WebhookEvent.delivery_attempts < self.max_retry_attempts
-                )
-            )
+            supabase = get_supabase()
             
-            result = await db.execute(query)
-            return result.scalars().all()
+            # Find meetings that should have critical events but don't
+            query = supabase.table("meetings").select("*").in_("status", ["STARTED", "PENDING"])
             
-        except Exception as e:
-            logger.error(f"Error getting failed webhooks: {e}")
-            return []
-    
-    async def _should_retry_webhook(self, webhook: WebhookEvent) -> bool:
-        """Check if a webhook should be retried"""
-        if webhook.delivery_attempts >= self.max_retry_attempts:
-            return False
-        
-        if not webhook.last_delivery_attempt:
-            return True
-        
-        # Check if enough time has passed since last attempt
-        delay = self.retry_delays[min(webhook.delivery_attempts, len(self.retry_delays) - 1)]
-        time_since_last = datetime.now(timezone.utc) - webhook.last_delivery_attempt
-        
-        return time_since_last.total_seconds() >= delay
-    
-    async def _retry_webhook_delivery(self, webhook: WebhookEvent, db: AsyncSession) -> bool:
-        """Retry webhook delivery"""
-        try:
-            # Update retry information
-            webhook.delivery_status = "retrying"
-            webhook.delivery_attempts += 1
-            webhook.last_delivery_attempt = datetime.now(timezone.utc)
-            webhook.delivery_error = None
-            # Don't commit here - let the calling transaction handle it
+            if user_id:
+                query = query.eq("user_id", user_id)
             
-            # Simulate webhook retry (in real implementation, this would resend the webhook)
-            # For now, we'll just mark it as delivered after a short delay
-            await asyncio.sleep(2)  # Simulate processing time
+            result = query.execute()
             
-            # Mark as delivered
-            webhook.delivery_status = "delivered"
-            webhook.processed_at = datetime.now(timezone.utc)
-            # Don't commit here - let the calling transaction handle it
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return
             
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Webhook {webhook.id} retry failed: {e}")
-            await self._mark_delivery_failed(webhook, str(e), db)
-            return False
-    
-    async def _mark_delivery_failed(self, webhook: WebhookEvent, error: str, db: AsyncSession):
-        """Mark webhook delivery as failed"""
-        try:
-            webhook.delivery_status = "failed"
-            webhook.delivery_error = error
-            webhook.last_delivery_attempt = datetime.now(timezone.utc)
-            # Don't commit here - let the calling transaction handle it
-            
-        except Exception as e:
-            logger.error(f"Error marking webhook {webhook.id} as failed: {e}")
-    
-    async def _mark_permanently_failed(self, webhook: WebhookEvent, db: AsyncSession):
-        """Mark webhook as permanently failed after max retries"""
-        try:
-            webhook.delivery_status = "permanently_failed"
-            webhook.delivery_error = f"Max retry attempts ({self.max_retry_attempts}) exceeded"
-            # Don't commit here - let the calling transaction handle it
-            
-            # Webhook marked as permanently failed
-            
-        except Exception as e:
-            logger.error(f"Error marking webhook {webhook.id} as permanently failed: {e}")
-    
-    async def _find_missing_critical_events(self, db: AsyncSession) -> List[Meeting]:
-        """Find meetings that should have received critical events but haven't"""
-        try:
-            # Find meetings that are in progress but should be completed
-            # and don't have critical webhook events
-            query = select(Meeting).where(
-                and_(
-                    Meeting.status.in_(["STARTED", "PENDING"]),
-                    Meeting.updated_at < datetime.now(timezone.utc) - timedelta(minutes=10)
-                )
-            )
-            
-            result = await db.execute(query)
-            meetings = result.scalars().all()
-            
-            missing_critical_events = []
+            meetings = result.data
             
             for meeting in meetings:
-                # Check if we have a critical webhook event for this meeting
-                has_critical_event = await self._has_critical_webhook_event(meeting, db)
-                
-                if not has_critical_event:
-                    missing_critical_events.append(meeting)
-            
-            return missing_critical_events
-            
+                if await self._is_missing_critical_events(meeting, user_id):
+                    await self._trigger_polling_fallback(meeting, user_id)
+                    
         except Exception as e:
-            logger.error(f"Error finding missing critical events: {e}")
-            return []
+            logger.error(f"Error checking critical event fallbacks: {e}")
     
-    async def _has_critical_webhook_event(self, meeting: Meeting, db: AsyncSession) -> bool:
-        """Check if a meeting has received critical webhook events"""
+    async def _is_missing_critical_events(self, meeting: Dict, user_id: str = None) -> bool:
+        """Check if a meeting is missing critical events"""
         try:
-            if not meeting.bot_id:
-                return False
+            # Check if we have the expected critical events for this meeting
+            expected_events = self.expected_webhook_patterns.get(meeting["status"], [])
             
-            # Look for critical webhook events
-            query = select(WebhookEvent).where(
-                and_(
-                    WebhookEvent.bot_id == meeting.bot_id,
-                    WebhookEvent.event_data.contains({"event_type": "post_processing_completed"}),
-                    WebhookEvent.delivery_status == "delivered"
-                )
-            )
+            recent_webhooks = await self._get_recent_webhook_events(meeting, user_id)
             
-            result = await db.execute(query)
-            return result.scalar_one_or_none() is not None
+            for expected_event in expected_events:
+                if not any(webhook["event_type"] == expected_event for webhook in recent_webhooks):
+                    return True
+            
+            return False
             
         except Exception as e:
-            logger.error(f"Error checking critical webhook events for meeting {meeting.id}: {e}")
+            logger.error(f"Error checking if missing critical events: {e}")
             return False
     
-    async def get_webhook_delivery_stats(self, db: AsyncSession) -> Dict[str, Any]:
+    async def get_webhook_delivery_stats(self, user_id: str = None) -> Dict[str, Any]:
         """Get webhook delivery statistics"""
         try:
-            # Count by delivery status
-            status_counts = {}
-            for status in ["pending", "delivered", "failed", "retrying", "permanently_failed"]:
-                query = select(WebhookEvent).where(WebhookEvent.delivery_status == status)
-                result = await db.execute(query)
-                status_counts[status] = len(result.scalars().all())
+            supabase = get_supabase()
             
-            # Get retry statistics
-            retry_query = select(WebhookEvent).where(WebhookEvent.delivery_attempts > 0)
-            retry_result = await db.execute(retry_query)
-            retry_count = len(retry_result.scalars().all())
+            # Get total webhooks
+            query = supabase.table("webhook_events").select("*", count="exact")
+            
+            if user_id:
+                query = query.eq("user_id", user_id)
+            
+            result = query.execute()
+            
+            if result.error:
+                logger.error(f"Supabase error: {result.error}")
+                return {}
+            
+            total_webhooks = result.count or 0
+            
+            # Get status counts
+            status_counts = {}
+            for status in ["delivered", "failed", "pending", "permanently_failed"]:
+                status_query = supabase.table("webhook_events").select("*", count="exact").eq("delivery_status", status)
+                
+                if user_id:
+                    status_query = status_query.eq("user_id", user_id)
+                
+                status_result = status_query.execute()
+                
+                if not status_result.error:
+                    status_counts[status] = status_result.count or 0
+                else:
+                    status_counts[status] = 0
+            
+            # Calculate success rate
+            delivered = status_counts.get("delivered", 0)
+            total = total_webhooks
+            
+            if total > 0:
+                delivery_success_rate = (delivered / total) * 100
+            else:
+                delivery_success_rate = 0
             
             return {
+                "total_webhooks": total,
                 "status_counts": status_counts,
-                "total_webhooks": sum(status_counts.values()),
-                "retry_count": retry_count,
-                "delivery_success_rate": (status_counts.get("delivered", 0) / max(sum(status_counts.values()), 1)) * 100
+                "delivery_success_rate": round(delivery_success_rate, 2)
             }
             
         except Exception as e:

@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Bot, Plus, Trash2 } from 'lucide-react';
+import { Bot, Plus, Trash2, LogOut } from 'lucide-react';
 import { MeetingConfig, MeetingBot, ScorecardResponse } from './types';
 import Sidebar from './components/Sidebar';
 import ConfigScreen from './components/ConfigScreen';
 import ScorecardScreen from './components/ScorecardScreen';
+import AuthScreen from './components/AuthScreen';
+import { useAuth } from './contexts/AuthContext';
 import apiService from './services/api';
 
 const App: React.FC = () => {
+  const { user, isAuthenticated, isLoading, signOut } = useAuth();
   const [bots, setBots] = useState<MeetingBot[]>([]);
   const [selectedBotId, setSelectedBotId] = useState<number | null>(null);
   const [isCreatingNewBot, setIsCreatingNewBot] = useState(false);
@@ -24,10 +27,12 @@ const App: React.FC = () => {
   const selectedBot = bots.find(bot => bot.id === selectedBotId);
   const currentScorecardData = selectedBotId ? scorecardCache.get(selectedBotId) : null;
 
-  // Load bots on mount
+  // Load bots on mount when authenticated
   useEffect(() => {
-    loadBots();
-  }, []);
+    if (isAuthenticated) {
+      loadBots();
+    }
+  }, [isAuthenticated]);
 
   const loadBots = async () => {
     try {
@@ -170,6 +175,23 @@ const App: React.FC = () => {
   // Allow multiple bots to be created regardless of status
   const isBotInMeeting = false;
 
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show authentication screen if not authenticated
+  if (!isAuthenticated) {
+    return <AuthScreen />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="flex h-screen">
@@ -206,6 +228,16 @@ const App: React.FC = () => {
                     </span>
                   </div>
                 )}
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-600">Welcome, {user?.email}</span>
+                <button
+                  onClick={signOut}
+                  className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
               </div>
             </div>
           </header>

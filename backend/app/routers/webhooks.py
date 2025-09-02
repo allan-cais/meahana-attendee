@@ -1,14 +1,36 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header
+from app.core.database import get_supabase
 from app.services.webhook_service import WebhookService
 from app.schemas.schemas import WebhookPayload
+from app.services.auth_service import AuthService
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current user from authorization header"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header"
+        )
+    
+    token = authorization.replace("Bearer ", "")
+    auth_service = AuthService()
+    
+    try:
+        user = await auth_service.get_user(token)
+        return user
+    except Exception as e:
+        logger.error(f"Failed to get current user: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
 
 
 @router.get("/url")
@@ -41,12 +63,11 @@ async def get_webhook_url():
 @router.post("/")
 async def handle_webhook(
     payload: WebhookPayload,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
     """Handle webhook events from Attendee API"""
     try:
-        result = await WebhookService.process_webhook(payload, db, background_tasks)
+        result = await WebhookService.process_webhook(payload, background_tasks)
         return result
         
     except Exception as e:
@@ -57,12 +78,11 @@ async def handle_webhook(
 @router.post("/attendee")
 async def handle_attendee_webhook(
     payload: WebhookPayload,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
     """Handle webhook events from Attendee API"""
     try:
-        result = await WebhookService.process_webhook(payload, db, background_tasks)
+        result = await WebhookService.process_webhook(payload, background_tasks)
         return result
         
     except Exception as e:
@@ -73,20 +93,19 @@ async def handle_attendee_webhook(
 @router.post("/retry-failed")
 async def retry_failed_webhooks(
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
-    """Retry processing failed webhook events"""
+    """Retry processing failed webhook events for the current user"""
     try:
-        from sqlalchemy import select, update
-        from app.models.models import WebhookEvent
+        supabase = get_supabase()
         
-        # Find failed webhooks
-        result = await db.execute(
-            select(WebhookEvent).where(
-                WebhookEvent.processed == "false"
-            ).order_by(WebhookEvent.created_at.desc())
-        )
-        failed_webhooks = result.scalars().all()
+        # Find failed webhooks for the current user
+        result = supabase.table("webhook_events").select("*").eq("user_id", current_user["id"]).eq("processed", "false").order("created_at", desc=True).execute()
+        
+        if result.error:
+            raise Exception(f"Supabase error: {result.error}")
+        
+        failed_webhooks = result.data
         
         if not failed_webhooks:
             return {"message": "No failed webhooks to retry", "count": 0}
@@ -95,23 +114,27 @@ async def retry_failed_webhooks(
         for webhook in failed_webhooks:
             try:
                 # Reset status for retry
-                webhook.processed = "false"
-                webhook.delivery_status = "pending"
-                webhook.delivery_error = None
-                await db.commit()
+                update_result = supabase.table("webhook_events").update({
+                    "processed": "false",
+                    "delivery_status": "pending",
+                    "delivery_error": None
+                }).eq("id", webhook["id"]).eq("user_id", current_user["id"]).execute()
+                
+                if update_result.error:
+                    logger.error(f"Error updating webhook {webhook['id']}: {update_result.error}")
+                    continue
                 
                 # Re-process the webhook
                 from app.services.webhook_service import WebhookService
                 from app.schemas.schemas import WebhookPayload
                 
                 # Reconstruct payload from stored data
-                payload = WebhookPayload(**webhook.raw_payload)
+                payload = WebhookPayload(**webhook["raw_payload"])
                 
                 # Process in background to avoid blocking
                 background_tasks.add_task(
                     WebhookService.process_webhook,
                     payload,
-                    db,
                     background_tasks
                 )
                 
@@ -119,7 +142,7 @@ async def retry_failed_webhooks(
                 # Retrying webhook
                 
             except Exception as e:
-                logger.error(f"Error retrying webhook {webhook.id}: {e}")
+                logger.error(f"Error retrying webhook {webhook['id']}: {e}")
                 continue
         
         return {

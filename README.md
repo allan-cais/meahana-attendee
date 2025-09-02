@@ -5,8 +5,8 @@ A clean, minimal integration for managing meeting bots with real-time transcript
 ## 🏗️ Architecture
 
 - **Frontend**: React + TypeScript + Tailwind CSS
-- **Backend**: FastAPI + Python + PostgreSQL + Redis
-- **Database**: PostgreSQL with Alembic migrations
+- **Backend**: FastAPI + Python + Supabase + Redis
+- **Database**: Supabase (PostgreSQL) with Alembic migrations
 - **Cache**: Redis for session management
 
 ## 🚀 Quick Start
@@ -39,7 +39,7 @@ This will start:
 - Backend API on http://localhost:8000
 - Redis on localhost:6379
 
-**Note**: This setup expects a local PostgreSQL database. For production, use `docker-compose.prod.yml`.
+**Note**: This setup uses Supabase database. Make sure to set your `DATABASE_URL` in `backend/.env`.
 
 ### Option 2: Development Mode
 
@@ -50,7 +50,7 @@ npm install
 # Install backend dependencies
 cd backend && pip install -r requirements.txt
 
-# Start database services (required)
+# Start Redis service (required)
 docker-compose up -d redis
 
 # Start backend
@@ -85,8 +85,8 @@ npm run backend:docker
 ### Database Management
 
 ```bash
-# Start database services
-docker-compose up -d db redis
+# Start Redis service
+docker-compose up -d redis
 
 # Reset database (clear all data)
 ./reset-db.sh
