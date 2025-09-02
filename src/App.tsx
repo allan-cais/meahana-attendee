@@ -16,8 +16,7 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<MeetingConfig>({
     meeting_url: '',
     bot_name: '',
-    join_at: undefined,
-    webhook_base_url: '' // No hardcoded default - user must input this
+    join_at: undefined
   });
   
   const [scorecardCache, setScorecardCache] = useState<Map<number, ScorecardResponse>>(new Map());
@@ -56,8 +55,7 @@ const App: React.FC = () => {
     setConfig({ 
       meeting_url: '', 
       bot_name: '', 
-      join_at: undefined, 
-      webhook_base_url: 'http://localhost:8000' 
+      join_at: undefined
     });
     setError(null);
   };
@@ -104,8 +102,7 @@ const App: React.FC = () => {
       setConfig({
         meeting_url: bot.meeting_url,
         bot_name: bot.meeting_metadata.bot_name,
-        join_at: bot.meeting_metadata.join_at,
-        webhook_base_url: bot.meeting_metadata.webhook_base_url // Only set if it exists, no hardcoded fallback
+        join_at: bot.meeting_metadata.join_at
       });
       
       // Fetch scorecard if completed
@@ -122,7 +119,7 @@ const App: React.FC = () => {
       
       if (selectedBotId === botId) {
         setSelectedBotId(null);
-        setConfig({ meeting_url: '', bot_name: '', join_at: undefined, webhook_base_url: '' });
+        setConfig({ meeting_url: '', bot_name: '', join_at: undefined });
       }
     } catch (error) {
       alert(`Failed to delete bot: ${error instanceof Error ? error.message : 'Unknown error'}`);

@@ -16,7 +16,6 @@ class MeetingBase(BaseModel):
     meeting_url: HttpUrl
     bot_name: str
     join_at: Optional[datetime] = None
-    webhook_base_url: str  # Required for bot-level webhooks to work
 
 
 class MeetingCreate(MeetingBase):

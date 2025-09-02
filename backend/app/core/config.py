@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     polling_retry_delay: int = Field(default=60, description="Delay between polling retries in seconds")
     
     # Webhook Configuration
-    webhook_base_url: Optional[str] = Field(default=None, description="Base URL for webhook endpoints")
+    webhook_base_url: str = Field(..., description="Base URL for webhook endpoints (set via WEBHOOK_BASE_URL env var)")
     webhook_max_retry_attempts: int = Field(default=3, description="Maximum webhook delivery retry attempts")
     webhook_retry_delays: str = Field(default="5,30,300", description="Comma-separated retry delays in seconds")
     webhook_fallback_timeout: int = Field(default=30, description="Webhook delivery timeout in seconds")

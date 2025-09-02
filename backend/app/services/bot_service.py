@@ -32,8 +32,7 @@ class BotService:
                 "user_id": user_id,
                 "meeting_metadata": {
                     "bot_name": meeting.bot_name,
-                    "join_at": meeting.join_at.isoformat() if meeting.join_at else None,
-                    "webhook_base_url": getattr(meeting, 'webhook_base_url', None)
+                    "join_at": meeting.join_at.isoformat() if meeting.join_at else None
                 }
             }
             
@@ -151,7 +150,7 @@ class BotService:
             payload["join_at"] = meeting.join_at.isoformat()
         
         # Add webhooks configuration - REQUIRED for bot-level webhooks to work
-        webhook_url = f"{meeting.webhook_base_url.rstrip('/')}/webhook/"
+        webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/"
         payload["webhooks"] = [
             {
                 "url": webhook_url,

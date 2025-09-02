@@ -46,12 +46,12 @@ async def get_webhook_url():
         
         return {
             "webhook_url": webhook_url,
-            "message": "This is the global webhook URL (for project-level webhooks)",
-            "note": "For bot-level webhooks (recommended), each bot specifies its own webhook URL during creation",
+            "message": "This is the webhook URL configured via WEBHOOK_BASE_URL environment variable",
+            "note": "Bot-level webhooks are automatically created when bots are created via API using the static webhook URL",
             "instructions": [
-                "1. For bot-level webhooks: Set webhook_base_url in bot config (e.g., your ngrok URL)",
-                "2. Bot-level webhooks are automatically created when bots are created via API",
-                "3. Select triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave"
+                "1. Bot-level webhooks are automatically configured using WEBHOOK_BASE_URL",
+                "2. Webhooks are created when bots are created via API",
+                "3. Triggers: bot.state_change, transcript.update, chat_messages.update, participant_events.join_leave"
             ]
         }
         

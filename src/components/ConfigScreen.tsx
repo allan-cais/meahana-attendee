@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Calendar, Clock, Link } from 'lucide-react';
+import { Bot, Calendar, Clock } from 'lucide-react';
 import { MeetingConfig } from '../types';
 import DateTimePicker from './DateTimePicker';
 
@@ -93,35 +93,7 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({
             </p>
           </div>
 
-          {/* Webhook Base URL - CRITICAL FOR DEMO */}
-          <div>
-            <label htmlFor="webhook_base_url" className="block text-sm font-medium text-gray-700 mb-2">
-              Webhook Base URL <span className="text-xs text-red-600 bg-red-100 px-2 py-1 rounded font-bold">CRITICAL</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Link className="h-5 w-5 text-gray-400" />
-              </div>
-              <input
-                type="url"
-                id="webhook_base_url"
-                value={config.webhook_base_url || ''}
-                onChange={(e) => setConfig({ ...config, webhook_base_url: e.target.value })}
-                placeholder="https://your-ngrok-url.ngrok-free.app"
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-            </div>
-            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700 font-medium">
-                ⚠️ <strong>CRITICAL:</strong> This field is required for the demo to work!
-              </p>
-              <p className="text-sm text-red-600 mt-1">
-                Without webhooks, we cannot receive bot status updates from Attendee. 
-                Use <code className="bg-red-100 px-1 rounded">https://your-ngrok-url.ngrok-free.app</code> as an example.
-              </p>
-            </div>
-          </div>
+
 
           {/* Join Time */}
           <div>
@@ -163,7 +135,7 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({
           <div className="pt-4">
             <button
               type="submit"
-              disabled={loading || !config.meeting_url || !config.bot_name || !config.webhook_base_url}
+              disabled={loading || !config.meeting_url || !config.bot_name}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
             >
               {loading ? (
