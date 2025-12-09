@@ -5,7 +5,6 @@ from fastapi.responses import FileResponse
 from app.core.config import settings
 from app.routers import bots, reports, webhooks, ngrok, auth
 import logging
-import os
 from pathlib import Path
 
 # Configure logging
@@ -24,11 +23,19 @@ app = FastAPI(
 )
 
 # Add CORS middleware
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+if getattr(settings, "frontend_url", None):
+    allowed_origins.append(settings.frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -79,7 +86,6 @@ else:
             "environment": settings.environment,
             "note": "Frontend not built. Run 'npm run build' to build the frontend."
         }
-
 
 @app.on_event("startup")
 async def startup_event():
