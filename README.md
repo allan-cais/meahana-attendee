@@ -60,29 +60,6 @@ cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 npm start
 ```
 
-### Option 3: Production Mode (Local)
-
-```bash
-# Install dependencies
-npm run install:all
-
-# Quick start with build + production servers
-npm start
-
-# OR use the startup scripts
-./start-prod.sh          # Linux/macOS
-start-prod.bat           # Windows
-
-# OR run individual commands
-npm run build            # Build frontend
-npm run prod             # Start both production servers
-```
-
-This will start:
-- Frontend on http://localhost:3000 (optimized production build)
-- Backend API on http://localhost:8000 (production mode)
-- Requires Redis running (use `docker-compose up -d redis`)
-
 ## 🔧 Development
 
 ### Available Scripts
@@ -215,20 +192,18 @@ docker-compose logs -f
 
 ```
 meahana-attendee/
-├── src/                    # React frontend source
-│   ├── components/         # React components
-│   ├── services/          # API services
-│   └── types/             # TypeScript type definitions
+├── frontend/              # React frontend source
+│   ├── src/               # React components/services/types
+│   ├── package.json       # Frontend dependencies/scripts
+│   └── Dockerfile         # Frontend container
 ├── backend/               # Python FastAPI backend
-│   ├── app/              # FastAPI application
-│   │   ├── models/       # Database models
-│   │   ├── routers/      # API routes
-│   │   ├── schemas/      # Pydantic schemas
-│   │   └── services/     # Business logic
-│   ├── alembic/          # Database migrations
-│   └── requirements.txt   # Python dependencies
-├── docker-compose.yml     # Full-stack orchestration
-└── package.json          # Node.js dependencies
+│   ├── app/               # FastAPI application
+│   ├── alembic/           # Database migrations
+│   ├── requirements.txt   # Backend dependencies
+│   └── Dockerfile         # Backend container
+├── docker-compose.yml     # Dev orchestration
+├── docker-compose.prod.yml# Prod orchestration
+└── package.json           # Monorepo scripts (frontend/backend runners)
 ```
 
 ## 📊 Features
