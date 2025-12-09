@@ -46,7 +46,7 @@ class Settings(BaseSettings):
         return self.environment.lower() == "development" and not self.webhook_base_url
     
     class Config:
-        env_file = "/app/.env"
+        env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"
 

@@ -89,3 +89,6 @@ __pycache__/
 # Alembic cache
 backend/alembic/__pycache__/
 backend/alembic/versions/__pycache__/
+
+# Railway
+.railway/

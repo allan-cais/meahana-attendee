@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.core.config import settings
 from app.routers import bots, reports, webhooks, ngrok, auth
 import logging
+import os
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -35,21 +39,53 @@ app.include_router(reports.router, prefix="/meeting")
 app.include_router(webhooks.router)
 app.include_router(ngrok.router)
 
+# Serve static files (React build)
+# Determine the build directory path
+build_dir = Path(__file__).parent.parent.parent / "build"
+
+if build_dir.exists():
+    # Mount static files
+    app.mount("/static", StaticFiles(directory=str(build_dir / "static")), name="static")
+
+    @app.get("/api")
+    async def api_root():
+        """API root endpoint"""
+        return {
+            "message": settings.app_name,
+            "version": "1.0.0",
+            "environment": settings.environment
+        }
+
+    # Serve React app for all other routes
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        """Serve React app"""
+        # Check if it's an API route
+        if full_path.startswith("api/") or full_path.startswith("meeting/") or full_path.startswith("webhook/"):
+            return {"error": "Not found"}
+
+        # Serve index.html for all other routes (SPA routing)
+        index_file = build_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        return {"error": "Frontend not built"}
+else:
+    @app.get("/")
+    async def root():
+        """Root endpoint (development mode - no frontend build)"""
+        return {
+            "message": settings.app_name,
+            "version": "1.0.0",
+            "environment": settings.environment,
+            "note": "Frontend not built. Run 'npm run build' to build the frontend."
+        }
+
 
 @app.on_event("startup")
 async def startup_event():
     """Startup event handler"""
     # Application startup complete
-
-
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": settings.app_name,
-        "version": "1.0.0",
-        "environment": settings.environment
-    }
+    pass
 
 
 @app.get("/health")
